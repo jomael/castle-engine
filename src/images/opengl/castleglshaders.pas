@@ -19,8 +19,8 @@
     @item(
       Creating/destroying the TGLSLProgram instance immediately creates/destroys
       appropriate program on GPU. So be sure to create/destroy it only
-      when you have OpenGL context available (for example, create in TCastleWindowCustom.OnOpen
-      and destroy in TCastleWindowCustom.OnClose).)
+      when you have OpenGL context available (for example, create in TCastleWindowBase.OnOpen
+      and destroy in TCastleWindowBase.OnClose).)
 
     @item(
       Upon creation, we check current OpenGL context abilities.
@@ -34,6 +34,26 @@
       means that shaders are not really initialized at all.))
 }
 unit CastleGLShaders;
+
+{ Define CASTLE_SHOW_SHADER_SOURCE_ON_ERROR to show the shader source code
+  when the compilation or linking of a shader program (or it's part) failed.
+
+  This is not done always, automatically, because:
+
+  - The resulting error message can be quite long,
+    as it will contain a full GLSL code.
+    That's useful if you're a developer familiar with GLSL, and able to modify it.
+    But it makes the log very long and hard to read,
+    which is a problem if you're not interested in this particular GLSL bug now.
+
+  - Showing it (at linking) requires collecting shader source code,
+    which uses a bit of memory and time.
+    (But in practice, this is negligible, so this isn't an important argument.)
+
+}
+{$ifdef DEBUG}
+  {$define CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
+{$endif}
 
 {$I castleconf.inc}
 
@@ -69,7 +89,16 @@ type
     uaIgnore);
 
   { What to do when GLSL uniform variable is set (by TGLSLProgram.SetUniform)
-    to the type that doesn't match type declared in GLSL shader. }
+    to the type that doesn't match type declared in GLSL shader.
+
+    @deprecated
+    Do not use this.
+    It has no effect anymore. Checking the GLSL uniform types requires
+    doing glGetError after every uniform set, which is prohibitively slow.
+    One day we may implement a better way to do this (using the info
+    we get about uniforms in TGLSLProgram.DebugInfo) and then this will
+    be useful again.
+  }
   TUniformTypeMismatchAction = (
     { Do not catch uniform type mismatch, leaving it to OpenGL.
       This will cause OpenGL error "invalid operation" (possibly resulting
@@ -87,17 +116,13 @@ type
   TGLSLProgram = class;
 
   TGLSLUniform = record
-  strict private
-    procedure SetValueBegin(const ForceException: boolean);
-    procedure SetValueEnd(const ForceException: boolean);
   public
     Owner: TGLSLProgram;
     Name: string;
     Location: TGLint;
 
-    const
-      { Calling @link(TGLSLUniform.SetValue) of this is ignored. }
-      NotExisting: TGLSLUniform = (Owner: nil; Name: ''; Location: -1);
+    { Calling @link(TGLSLUniform.SetValue) of this is ignored. }
+    class function NotExisting: TGLSLUniform; static;
 
     { Set uniform variable value.
       You should get the uniform information first using the
@@ -219,6 +244,8 @@ type
 
   TGLSLAttributeList = {$ifdef CASTLE_OBJFPC}specialize{$endif} TList<TGLSLAttribute>;
 
+  TLocationCache = {$ifdef CASTLE_OBJFPC}specialize{$endif} TDictionary<String, TGLint>;
+
   { Easily handle program in GLSL (OpenGL Shading Language). }
   TGLSLProgram = class
   private
@@ -235,6 +262,12 @@ type
     FUniformNotFoundAction: TUniformNotFoundAction;
     FUniformTypeMismatchAction: TUniformTypeMismatchAction;
 
+    FUniformLocations, FAttributeLocations: TLocationCache;
+
+    {$ifdef CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
+    FSource: array [TShaderType] of TStringList;
+    {$endif CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
+
     class var
       FCurrent: TGLSLProgram;
 
@@ -244,7 +277,7 @@ type
     constructor Create;
     destructor Destroy; override;
 
-    property Support: TGLSupport read FSupport;
+    property Support: TGLSupport read FSupport; deprecated 'use GLFeatures.Shaders';
 
     { Create shader from given string, compile it and attach to current program.
 
@@ -374,6 +407,7 @@ type
     property UniformTypeMismatchAction: TUniformTypeMismatchAction
       read FUniformTypeMismatchAction write FUniformTypeMismatchAction
       default utGLError;
+      deprecated 'do not use this, it is ignored (old implementation was prohibitively slow)';
 
     { Get the uniform instance. It can be used to make repeated
       @link(TGLSLUniform.SetValue) calls. You must link the program first.
@@ -643,45 +677,11 @@ end;
 
 { TGLSLUniform --------------------------------------------------------------- }
 
-procedure TGLSLUniform.SetValueBegin(const ForceException: boolean);
+class function TGLSLUniform.NotExisting: TGLSLUniform; static;
+const
+  R: TGLSLUniform = (Owner: nil; Name: ''; Location: -1);
 begin
-  if (Owner.UniformTypeMismatchAction in [utWarning, utException]) or
-     ForceException then
-    CheckGLErrors('Cleaning GL errors before setting GLSL uniform:');
-
-  Owner.Enable;
-end;
-
-procedure TGLSLUniform.SetValueEnd(const ForceException: boolean);
-var
-  ErrorCode: TGLenum;
-
-  function ErrMessage: string;
-  begin
-    Result := Format('Error when setting GLSL uniform variable "%s". Probably the type in the shader source code does not match with the type declared in VRML/X3D. ',
-      [Name]) + GLErrorString(ErrorCode);
-  end;
-
-begin
-  if (Owner.UniformTypeMismatchAction in [utWarning, utException]) or
-     ForceException then
-  begin
-    { Invalid glUniform call, that specifies wrong uniform variable type,
-      may cause OpenGL error "invalid operation". We want to catch it.
-      We cleaned GL error at the SetValueBegin, so if there's an error
-      now --- we know it's because of glUniform. }
-    ErrorCode := glGetError();
-    if ErrorCode <> GL_NO_ERROR then
-    begin
-      { GL_OUT_OF_MEMORY has it's special treatment, to honour GLOutOfMemoryError. }
-      if ErrorCode = GL_OUT_OF_MEMORY then
-        GLOutOfMemory(Format('GPU out of memory. Detected when setting GLSL uniform variable "%s"',
-          [Name])) else
-      if ForceException or (Owner.UniformTypeMismatchAction = utException) then
-        raise EGLSLUniformNotFound.Create(ErrMessage) else
-        WritelnWarning('GLSL', ErrMessage);
-    end;
-  end;
+  Result := R;
 end;
 
 procedure TGLSLUniform.SetValue(const Value: boolean; const ForceException: boolean);
@@ -699,157 +699,157 @@ begin
 
     Which means that I can simply call glUniform1i, with Ord(Value). }
 
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniform1iARB(Location, Ord(Value));
     {$endif}
     gsStandard : glUniform1i   (Location, Ord(Value));
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TGLint; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniform1iARB(Location, Value);
     {$endif}
     gsStandard : glUniform1i   (Location, Value);
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TVector2Integer; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniform2ivARB(Location, 1, @Value);
     {$endif}
     gsStandard : glUniform2iv   (Location, 1, @Value);
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TVector3Integer; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniform3ivARB(Location, 1, @Value);
     {$endif}
     gsStandard : glUniform3iv   (Location, 1, @Value);
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TVector4Integer; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniform4ivARB(Location, 1, @Value);
     {$endif}
     gsStandard : glUniform4iv   (Location, 1, @Value);
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TGLfloat; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniform1fARB(Location, Value);
     {$endif}
     gsStandard : glUniform1f   (Location, Value);
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TVector2; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniform2fvARB(Location, 1, @Value);
     {$endif}
     gsStandard : glUniform2fv   (Location, 1, @Value);
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TVector3; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniform3fvARB(Location, 1, @Value);
     {$endif}
     gsStandard : glUniform3fv   (Location, 1, @Value);
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TVector4; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniform4fvARB(Location, 1, @Value);
     {$endif}
     gsStandard : glUniform4fv   (Location, 1, @Value);
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TMatrix2; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniformMatrix2fvARB(Location, 1, GL_FALSE, @Value);
     {$endif}
     gsStandard : glUniformMatrix2fv   (Location, 1, GL_FALSE, @Value);
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TMatrix3; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniformMatrix3fvARB(Location, 1, GL_FALSE, @Value);
     {$endif}
     gsStandard : glUniformMatrix3fv   (Location, 1, GL_FALSE, @Value);
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TMatrix4; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniformMatrix4fvARB(Location, 1, GL_FALSE, @Value);
     {$endif}
     gsStandard : glUniformMatrix4fv   (Location, 1, GL_FALSE, @Value);
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TBooleanList; const ForceException: boolean);
@@ -868,107 +868,107 @@ begin
     So convert to longints. }
   Ints := Value.ToLongInt;
   try
-    SetValueBegin(ForceException);
-    case Owner.Support of
+    Owner.Enable;
+    case GLFeatures.Shaders of
       {$ifndef ForceStandardGLSLApi}
       gsExtension: glUniform1ivARB(Location, Value.Count, Ints.L);
       {$endif}
       gsStandard : glUniform1iv   (Location, Value.Count, Ints.L);
+      else ;
     end;
-    SetValueEnd(ForceException);
-  finally FreeAndNil(Ints) end;
+    finally FreeAndNil(Ints) end;
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TLongIntList; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
   Assert(SizeOf(LongInt) = SizeOf(TGLint));
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniform1ivARB(Location, Value.Count, Value.L);
     {$endif}
     gsStandard : glUniform1iv   (Location, Value.Count, Value.L);
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TSingleList; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniform1fvARB(Location, Value.Count, Value.L);
     {$endif}
     gsStandard : glUniform1fv   (Location, Value.Count, Value.L);
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TVector2List; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniform2fvARB(Location, Value.Count, PGLfloat(Value.L));
     {$endif}
     gsStandard : glUniform2fv   (Location, Value.Count, PGLfloat(Value.L));
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TVector3List; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniform3fvARB(Location, Value.Count, PGLfloat(Value.L));
     {$endif}
     gsStandard : glUniform3fv   (Location, Value.Count, PGLfloat(Value.L));
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TVector4List; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniform4fvARB(Location, Value.Count, PGLfloat(Value.L));
     {$endif}
     gsStandard : glUniform4fv   (Location, Value.Count, PGLfloat(Value.L));
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TMatrix3List; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniformMatrix3fvARB(Location, Value.Count, GL_FALSE, PGLfloat(Value.L));
     {$endif}
     gsStandard : glUniformMatrix3fv   (Location, Value.Count, GL_FALSE, PGLfloat(Value.L));
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 procedure TGLSLUniform.SetValue(const Value: TMatrix4List; const ForceException: boolean);
 begin
   if Location = -1 then Exit; // ignore non-existing uniform here
-  SetValueBegin(ForceException);
-  case Owner.Support of
+  Owner.Enable;
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glUniformMatrix4fvARB(Location, Value.Count, GL_FALSE, PGLfloat(Value.L));
     {$endif}
     gsStandard : glUniformMatrix4fv   (Location, Value.Count, GL_FALSE, PGLfloat(Value.L));
+    else ;
   end;
-  SetValueEnd(ForceException);
 end;
 
 { TGLSLAttribute ------------------------------------------------------------- }
@@ -977,11 +977,12 @@ procedure TGLSLAttribute.SetValue(const Value: TGLfloat);
 begin
   if Location = -1 then Exit; // ignore non-existing attribute here
   Owner.Enable;
-  case Owner.Support of
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glVertexAttrib1fARB(Location, Value);
     {$endif}
     gsStandard : glVertexAttrib1f   (Location, Value);
+    else ;
   end;
 end;
 
@@ -989,11 +990,12 @@ procedure TGLSLAttribute.SetValue(const Value: TVector2);
 begin
   if Location = -1 then Exit; // ignore non-existing attribute here
   Owner.Enable;
-  case Owner.Support of
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glVertexAttrib2fvARB(Location, @Value);
     {$endif}
     gsStandard : glVertexAttrib2fv   (Location, @Value);
+    else ;
   end;
 end;
 
@@ -1001,11 +1003,12 @@ procedure TGLSLAttribute.SetValue(const Value: TVector3);
 begin
   if Location = -1 then Exit; // ignore non-existing attribute here
   Owner.Enable;
-  case Owner.Support of
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glVertexAttrib3fvARB(Location, @Value);
     {$endif}
     gsStandard : glVertexAttrib3fv   (Location, @Value);
+    else ;
   end;
 end;
 
@@ -1013,11 +1016,12 @@ procedure TGLSLAttribute.SetValue(const Value: TVector4);
 begin
   if Location = -1 then Exit; // ignore non-existing attribute here
   Owner.Enable;
-  case Owner.Support of
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glVertexAttrib4fvARB(Location, @Value);
     {$endif}
     gsStandard : glVertexAttrib4fv   (Location, @Value);
+    else ;
   end;
 end;
 
@@ -1025,7 +1029,7 @@ procedure TGLSLAttribute.SetValue(const Value: TMatrix3);
 begin
   if Location = -1 then Exit; // ignore non-existing attribute here
   Owner.Enable;
-  case Owner.Support of
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension:
       begin
@@ -1040,6 +1044,7 @@ begin
         glVertexAttrib3fv   (Location + 1, @Value.Data[1]);
         glVertexAttrib3fv   (Location + 2, @Value.Data[2]);
       end;
+    else ;
   end;
 end;
 
@@ -1047,7 +1052,7 @@ procedure TGLSLAttribute.SetValue(const Value: TMatrix4);
 begin
   if Location = -1 then Exit; // ignore non-existing attribute here
   Owner.Enable;
-  case Owner.Support of
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension:
       begin
@@ -1064,6 +1069,7 @@ begin
         glVertexAttrib4fv   (Location + 2, @Value.Data[2]);
         glVertexAttrib4fv   (Location + 3, @Value.Data[3]);
       end;
+    else ;
   end;
 end;
 
@@ -1072,9 +1078,10 @@ procedure TGLSLAttribute.SetValue(const Value: TVector4Integer);
 begin
   if Location = -1 then Exit; // ignore non-existing attribute here
   Owner.Enable;
-  case Owner.Support of
+  case GLFeatures.Shaders of
     gsExtension: glVertexAttrib4ivARB(Location, @Value);
     gsStandard : glVertexAttrib4iv   (Location, @Value);
+    else ;
   end;
 end;
 
@@ -1082,9 +1089,10 @@ procedure TGLSLAttribute.SetValue(const Value: TVector4Byte);
 begin
   if Location = -1 then Exit; // ignore non-existing attribute here
   Owner.Enable;
-  case Owner.Support of
+  case GLFeatures.Shaders of
     gsExtension: glVertexAttrib4ubvARB(Location, @Value);
     gsStandard : glVertexAttrib4ubv   (Location, @Value);
+    else ;
   end;
 end;
 
@@ -1092,9 +1100,10 @@ procedure TGLSLAttribute.SetValue(const Value: TGLdouble);
 begin
   if Location = -1 then Exit; // ignore non-existing attribute here
   Owner.Enable;
-  case Owner.Support of
+  case GLFeatures.Shaders of
     gsExtension: glVertexAttrib1dARB(Location, Value);
     gsStandard : glVertexAttrib1d   (Location, Value);
+    else ;
   end;
 end;
 
@@ -1104,7 +1113,7 @@ procedure TGLSLAttribute.SetValue(const Value: TVector2Double);
 begin
   if Location = -1 then Exit; // ignore non-existing attribute here
   Owner.Enable;
-  case Owner.Support of
+  case GLFeatures.Shaders of
     gsExtension: glVertexAttrib2dvARB(Location, @Value);
     gsStandard : glVertexAttrib2dv   (Location, @Value);
   end;
@@ -1114,7 +1123,7 @@ procedure TGLSLAttribute.SetValue(const Value: TVector3Double);
 begin
   if Location = -1 then Exit; // ignore non-existing attribute here
   Owner.Enable;
-  case Owner.Support of
+  case GLFeatures.Shaders of
     gsExtension: glVertexAttrib3dvARB(Location, @Value);
     gsStandard : glVertexAttrib3dv   (Location, @Value);
   end;
@@ -1124,7 +1133,7 @@ procedure TGLSLAttribute.SetValue(const Value: TVector4Double);
 begin
   if Location = -1 then Exit; // ignore non-existing attribute here
   Owner.Enable;
-  case Owner.Support of
+  case GLFeatures.Shaders of
     gsExtension: glVertexAttrib4dvARB(Location, @Value);
     gsStandard : glVertexAttrib4dv   (Location, @Value);
   end;
@@ -1139,7 +1148,7 @@ begin
   if Location = -1 then Exit; // ignore non-existing attribute here
   Owner.Enable;
   LocationOffsetsToDisable[LocationOffset] := true;
-  case Owner.Support of
+  case GLFeatures.Shaders of
     {$ifndef ForceStandardGLSLApi}
     gsExtension:
       begin
@@ -1152,6 +1161,7 @@ begin
         glEnableVertexAttribArray   (Location + LocationOffset);
         glVertexAttribPointer   (Location + LocationOffset, Size, AType, Normalized, Stride, Pointer(Ptr));
       end;
+    else ;
   end;
 end;
 
@@ -1198,27 +1208,33 @@ begin
 
   for Offset := Low(TLocationOffset) to High(TLocationOffset) do
     if LocationOffsetsToDisable[Offset] then
-      case Owner.Support of
+      case GLFeatures.Shaders of
         {$ifndef ForceStandardGLSLApi}
         gsExtension: glDisableVertexAttribArrayARB(Location + Offset);
         {$endif}
         gsStandard : glDisableVertexAttribArray   (Location + Offset);
+        else ;
       end;
 end;
 
 { TGLSLProgram --------------------------------------------------------------- }
 
 constructor TGLSLProgram.Create;
+{$ifdef CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
+var
+  ShaderType: TShaderType;
+{$endif CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
 begin
   inherited;
 
   FSupport := GLFeatures.Shaders;
 
-  case Support of
+  case FSupport of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: GLhandleARB(ProgramId) := glCreateProgramObjectARB();
     {$endif}
     gsStandard :             ProgramId  := glCreateProgram         ();
+    else ;
   end;
 
   { Program id = 0 means that an error occurred. Citing GL documentation:
@@ -1243,9 +1259,21 @@ begin
 
   FUniformNotFoundAction := uaException;
   FUniformTypeMismatchAction := utGLError;
+
+  FUniformLocations := TLocationCache.Create;
+  FAttributeLocations := TLocationCache.Create;
+
+  {$ifdef CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
+  for ShaderType in TShaderType do
+    FSource[ShaderType] := TStringList.Create;
+  {$endif CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
 end;
 
 destructor TGLSLProgram.Destroy;
+{$ifdef CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
+var
+  ShaderType: TShaderType;
+{$endif CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
 begin
   { make sure all shaders are detached and deleted, to free all resources }
 
@@ -1254,14 +1282,22 @@ begin
   if ShaderIds <> nil then
     DetachAllShaders;
 
-  case Support of
+  {$ifdef CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
+  for ShaderType in TShaderType do
+    FreeAndNil(FSource[ShaderType]);
+  {$endif}
+
+  case FSupport of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: glDeleteObjectARB(GLhandleARB(ProgramId));
     {$endif}
     gsStandard : glDeleteProgram  (ProgramId);
+    else ;
   end;
 
   FreeAndNil(ShaderIds);
+  FreeAndNil(FUniformLocations);
+  FreeAndNil(FAttributeLocations);
 
   inherited;
 end;
@@ -1273,7 +1309,7 @@ end;
 
 function TGLSLProgram.ProgramInfoLog: string;
 begin
-  case Support of
+  case FSupport of
     {$ifndef ForceStandardGLSLApi}
     gsExtension: Result := GetInfoLogARB(ProgramId);
     {$endif}
@@ -1355,7 +1391,7 @@ function TGLSLProgram.DebugInfo: string;
     Name: string;
     ErrorCode: TGLenum;
   begin
-    case Support of
+    case FSupport of
       {$ifndef ForceStandardGLSLApi}
       gsExtension:
         begin
@@ -1410,6 +1446,7 @@ function TGLSLProgram.DebugInfo: string;
               [Name, GLShaderVariableTypeName(AType), Size]));
           end;
         end;
+      else ;
     end;
   end;
 
@@ -1423,7 +1460,7 @@ function TGLSLProgram.DebugInfo: string;
     Name: string;
     ErrorCode: TGLenum;
   begin
-    case Support of
+    case FSupport of
       {$ifndef ForceStandardGLSLApi}
       gsExtension:
         begin
@@ -1477,16 +1514,18 @@ function TGLSLProgram.DebugInfo: string;
               [Name, GLShaderVariableTypeName(AType), Size]));
           end;
         end;
+      else ;
     end;
   end;
 
   function ShaderInfoLog(ShaderId: TGLuint): string;
   begin
-    case Support of
+    case FSupport of
       {$ifndef ForceStandardGLSLApi}
       gsExtension: Result := GetInfoLogARB(ShaderId);
       {$endif}
       gsStandard : Result := GetShaderInfoLog(ShaderId);
+      else ;
     end;
   end;
 
@@ -1494,7 +1533,7 @@ var
   S: TStringList;
   I: Integer;
 begin
-  Result := 'GLSL program support: ' + GLSupportNames[Support];
+  Result := 'GLSL program support: ' + GLSupportNames[FSupport];
 
   CheckGLErrors('Check at the beginning of TGLSLProgram.DebugInfo');
 
@@ -1535,10 +1574,30 @@ var
     So we surround glCompileShader[ARB] in a safeguard, to raise nice
     EGLSLShaderCompileError (that will result in simple warning and fallback
     on fixed-function pipeline) instead of crash. }
-  procedure ReportBuggyCompileShader;
+  procedure ReportCompileAccessViolation;
   begin
     raise EGLSLShaderCompileError.CreateFmt('%s shader not compiled, segmentation fault in glCompileShader call. Buggy OpenGL GLSL compiler.',
       [ShaderTypeName[ShaderType]]);
+  end;
+
+  procedure ReportCompileError(const CompileErrorMessage: String);
+  var
+    Message: String;
+  begin
+    Message := Format('%s shader not compiled:' + NL +
+      '%s',
+      [ShaderTypeName[ShaderType], CompileErrorMessage]);
+
+    {$ifdef CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
+    Message := Message + NL +
+      NL +
+      'The shader source code is below:' + NL +
+      '-------------------------------------------------------' + NL +
+      S + NL +
+      '-------------------------------------------------------';
+    {$endif CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
+
+    raise EGLSLShaderCompileError.Create(Message);
   end;
 
   {$ifndef ForceStandardGLSLApi}
@@ -1555,12 +1614,11 @@ var
     try
       glCompileShaderARB(GLhandleARB(Result));
     except
-      on E: EAccessViolation do ReportBuggyCompileShader;
+      on E: EAccessViolation do ReportCompileAccessViolation;
     end;
     glGetObjectParameterivARB(GLhandleARB(Result), GL_OBJECT_COMPILE_STATUS_ARB, @Compiled);
     if Compiled <> 1 then
-      raise EGLSLShaderCompileError.CreateFmt('%s shader not compiled:' + NL + '%s',
-        [ShaderTypeName[ShaderType], GetInfoLogARB(Result)]);
+      ReportCompileError(GetInfoLogARB(Result));
   end;
   {$endif}
 
@@ -1578,7 +1636,7 @@ var
     try
       glCompileShader(Result);
     except
-      on E: EAccessViolation do ReportBuggyCompileShader;
+      on E: EAccessViolation do ReportCompileAccessViolation;
     end;
     glGetShaderiv(Result, GL_COMPILE_STATUS, @Compiled);
     { Although I generally avoid creating multiline exception messages,
@@ -1586,8 +1644,7 @@ var
       couple of error messages) and it's best presented with line breaks.
       So a line break right before ShaderGetInfoLog contents looks good. }
     if Compiled <> GL_TRUE then
-      raise EGLSLShaderCompileError.CreateFmt('%s shader not compiled:' + NL + '%s',
-        [ShaderTypeName[ShaderType], GetShaderInfoLog(Result)]);
+      ReportCompileError(GetShaderInfoLog(Result));
   end;
 
 const
@@ -1599,7 +1656,7 @@ begin
   { calculate AType }
   case ShaderType of
     stVertex:
-      case Support of
+      case FSupport of
         {$ifndef ForceStandardGLSLApi}
         gsExtension: AType := GL_VERTEX_SHADER_ARB;
         {$endif}
@@ -1607,25 +1664,27 @@ begin
         else Exit;
       end;
     stGeometry:
-      if GLVersion.AtLeast(3, 2) and (Support = gsStandard) then
+      if GLVersion.AtLeast(3, 2) and (FSupport = gsStandard) then
         AType := GL_GEOMETRY_SHADER else
-      { otherwise, raise an error --- but only if Support <> gsNone.
-        When Support = gsNone, everything should be silent NO-OP. }
-      if Support <> gsNone then
+      { otherwise, raise an error --- but only if FSupport <> gsNone.
+        When FSupport = gsNone, everything should be silent NO-OP. }
+      if FSupport <> gsNone then
         raise EGLSLShaderCompileError.Create('Geometry shaders not supported by your OpenGL version') else
         Exit;
     stFragment:
-      case Support of
+      case FSupport of
         {$ifndef ForceStandardGLSLApi}
         gsExtension: AType := GL_FRAGMENT_SHADER_ARB;
         {$endif}
         gsStandard : AType := GL_FRAGMENT_SHADER    ;
         else Exit;
       end;
+    {$ifndef COMPILER_CASE_ANALYSIS}
     else raise EInternalError.Create('TGLSLProgram.AttachShader ShaderType?');
+    {$endif}
   end;
 
-  case Support of
+  case FSupport of
     {$ifndef ForceStandardGLSLApi}
     gsExtension:
       begin
@@ -1640,7 +1699,12 @@ begin
         glAttachShader(ProgramId, ShaderId);
         ShaderIds.Add(ShaderId);
       end;
+    else ;
   end;
+
+  {$ifdef CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
+  FSource[ShaderType].Add(S);
+  {$endif CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
 end;
 
 procedure TGLSLProgram.AttachShader(const ShaderType: TShaderType;
@@ -1681,8 +1745,11 @@ end;
 procedure TGLSLProgram.DetachAllShaders;
 var
   I: Integer;
+  {$ifdef CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
+  ShaderType: TShaderType;
+  {$endif CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
 begin
-  case Support of
+  case FSupport of
     {$ifndef ForceStandardGLSLApi}
     gsExtension:
       for I := 0 to ShaderIds.Count - 1 do
@@ -1697,23 +1764,56 @@ begin
         glDetachShader   (ProgramId, ShaderIds[I]);
         glDeleteShader   (ShaderIds[I]);
       end;
+    else ;
   end;
   ShaderIds.Count := 0;
+
+  {$ifdef CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
+  for ShaderType in TShaderType do
+    FSource[ShaderType].Clear;
+  {$endif CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
 end;
 
 procedure TGLSLProgram.Link;
+
+  procedure ReportLinkError(const LinkErrorMessage: String);
+  var
+    Message: String;
+    {$ifdef CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
+    ShaderType: TShaderType;
+    I: Integer;
+    {$endif CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
+  begin
+    Message := 'GLSL shader program not linked:' + NL +
+      LinkErrorMessage;
+
+    {$ifdef CASTLE_SHOW_SHADER_SOURCE_ON_ERROR}
+    Message := Message + NL +
+      'The shader source code is:' + NL;
+    for ShaderType in TShaderType do
+      for I := 0 to FSource[ShaderType].Count - 1 do
+        Message := Message + Format(
+         '%s [%d] -------------------------------------------------------' + NL +
+         '%s' + NL,
+         [ ShaderTypeName[ShaderType], I, FSource[ShaderType][I] ] );
+    Message := Message +
+       '-------------------------------------------------------' + NL;
+    {$endif}
+
+    raise EGLSLProgramLinkError.Create(Message);
+  end;
+
 var
   Linked: TGLuint;
 begin
-  case Support of
+  case FSupport of
     {$ifndef ForceStandardGLSLApi}
     gsExtension:
       begin
         glLinkProgramARB(GLhandleARB(ProgramId));
         glGetObjectParameterivARB(GLhandleARB(ProgramId), GL_OBJECT_LINK_STATUS_ARB, @Linked);
         if Linked <> 1 then
-          raise EGLSLProgramLinkError.Create('GLSL program not linked' + NL +
-            GetInfoLogARB(ProgramId));
+          ReportLinkError(GetInfoLogARB(ProgramId));
       end;
     {$endif}
     gsStandard:
@@ -1721,12 +1821,12 @@ begin
         glLinkProgram(ProgramId);
         glGetProgramiv(ProgramId, GL_LINK_STATUS, @Linked);
         if Linked <> GL_TRUE then
-          raise EGLSLProgramLinkError.Create('GLSL program not linked' + NL +
-            GetProgramInfoLog(ProgramId));
+          ReportLinkError(GetProgramInfoLog(ProgramId));
       end;
+    else ;
   end;
 
-  if Log and LogShaders then
+  if LogShaders then
     WritelnLogMultiline('GLSL', 'GLSL program successfully linked. Information:' + NL + DebugInfo);
 end;
 
@@ -1777,7 +1877,9 @@ function TGLSLProgram.Uniform(const Name: string; const AUniformNotFoundAction: 
       uaWarning  : WritelnWarning('GLSL', ErrMessage);
       uaException: raise EGLSLUniformNotFound.Create(ErrMessage);
       uaIgnore   : ;
+      {$ifndef COMPILER_CASE_ANALYSIS}
       else raise EInternalError.Create('AUniformNotFoundAction? in TGLSLProgram.UniformNotFound');
+      {$endif}
     end;
   end;
 
@@ -1785,12 +1887,19 @@ begin
   Result.Owner := Self;
   Result.Name := Name;
 
-  case Support of
-    {$ifndef ForceStandardGLSLApi}
-    gsExtension: Result.Location := glGetUniformLocationARB(GLhandleARB(ProgramId), PCharOrNil(Name));
+  if not FUniformLocations.TryGetValue(Name, Result.Location) then
+  begin
+    case FSupport of
+      {$ifndef ForceStandardGLSLApi}
+      gsExtension: Result.Location := glGetUniformLocationARB(GLhandleARB(ProgramId), PCharOrNil(Name));
+      {$endif}
+      gsStandard : Result.Location := glGetUniformLocation   (ProgramId, PCharOrNil(Name));
+      else Result.Location := -1;
+    end;
+    {$ifdef CASTLE_LOG_GET_LOCATIONS}
+    WritelnLog('Doing (potentially expensive) glGetUniformLocation: ' + Name);
     {$endif}
-    gsStandard : Result.Location := glGetUniformLocation   (ProgramId, PCharOrNil(Name));
-    else Result.Location := -1; // whatever, should not be used
+    FUniformLocations.Add(Name, Result.Location);
   end;
 
   if Result.Location = -1 then
@@ -1942,12 +2051,19 @@ begin
   Result.Owner := Self;
   Result.Name := Name;
 
-  case Support of
-    {$ifndef ForceStandardGLSLApi}
-    gsExtension: Result.Location := glGetAttribLocationARB(GLhandleARB(ProgramId), PCharOrNil(Name));
+  if not FAttributeLocations.TryGetValue(Name, Result.Location) then
+  begin
+    case FSupport of
+      {$ifndef ForceStandardGLSLApi}
+      gsExtension: Result.Location := glGetAttribLocationARB(GLhandleARB(ProgramId), PCharOrNil(Name));
+      {$endif}
+      gsStandard: Result.Location := glGetAttribLocation(ProgramId, PCharOrNil(Name));
+      else Result.Location := -1;
+    end;
+    {$ifdef CASTLE_LOG_GET_LOCATIONS}
+    WritelnLog('Doing (potentially expensive) glGetAttribLocation: ' + Name);
     {$endif}
-    gsStandard: Result.Location := glGetAttribLocation(ProgramId, PCharOrNil(Name));
-    else Result.Location := -1;
+    FAttributeLocations.Add(Name, Result.Location);
   end;
 end;
 
@@ -2043,6 +2159,7 @@ begin
       gsExtension: glDisableVertexAttribArrayARB(Location);
       {$endif}
       gsStandard : glDisableVertexAttribArray   (Location);
+      else ;
     end;
 end;
 
@@ -2064,6 +2181,7 @@ begin
         gsExtension: glUseProgramObjectARB(GLhandleARB(Value.ProgramId));
         {$endif}
         gsStandard : glUseProgram         (Value.ProgramId);
+        else ;
       end;
     end else
     begin
@@ -2083,6 +2201,7 @@ begin
           end;
         {$endif}
         gsStandard    : glUseProgram         (0);
+        else ;
       end;
     end;
   end;

@@ -63,8 +63,8 @@ begin
   Color := HexToColor('5f3939'); // equivalent: Vector4(95/255, 57/255, 57/255, 1.0);
 
   InsideRect := TCastleRectangleControl.Create(Self);
-  InsideRect.Width := CalculatedWidth - 10;
-  InsideRect.Height := CalculatedHeight - 10;
+  InsideRect.Width := EffectiveWidth - 10;
+  InsideRect.Height := EffectiveHeight - 10;
   InsideRect.Color := Silver;
   InsideRect.Anchor(hpMiddle);
   InsideRect.Anchor(vpMiddle);
@@ -72,9 +72,9 @@ begin
 
   Image := TCastleImageControl.Create(Self);
   if Male then
-    Image.URL := ApplicationData('Male-Zombie-300px.png')
+    Image.URL := 'castle-data:/Male-Zombie-300px.png'
   else
-    Image.URL := ApplicationData('Female-Zombie-300px.png');
+    Image.URL := 'castle-data:/Female-Zombie-300px.png';
   Image.Anchor(hpMiddle);
   Image.Anchor(vpTop, -10);
   InsideRect.InsertFront(Image);

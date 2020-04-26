@@ -17,7 +17,7 @@
 
   TODO:
   - Alt key presses are not perfectly detected.
-    Is it even possible to cleanly catch K_Alt key press in WinAPI?
+    Is it even possible to cleanly catch VK_Alt key press in WinAPI?
     We would have to catch sys_keydown message but then we also
     block using standard Alt+F4 or Alt+Space? Another trouble:
     if you enter system menu by Alt+Down, we will not get Alt+Up?
@@ -31,11 +31,16 @@
 {$endif}
 
 {$ifdef read_interface_uses}
+{ note: this unit's definitions conflict with other definitions used in this file
+  But we need it for RegisterDeviceNotification, therefore adding it to the very
+  first position in the uses list to be overwritten by subsequent used units}
+JwaWinUser, JwaDbt,
+{ /note }
 Windows, CommDlg,
 {$endif}
 
 {$ifdef read_implementation_uses}
-CastleWindowModes, CastleMessages,
+CastleWindowModes, CastleMessages, CastleJoysticks,
 {$endif}
 
 {$ifdef read_window_interface}
@@ -69,7 +74,7 @@ private
 
   function WindowProc(uMsg: UINT; wParm: WPARAM; lParm: LPARAM): LRESULT;
 
-  { convert virtual key code (VK_xxx) to TKey. Returns K_None if no conversion
+  { convert virtual key code (VK_xxx) to TKey. Returns keyNone if no conversion
     available. }
   function VirtualKeyToKey(VirtualKey: Byte): TKey;
 {$endif read_window_interface}
@@ -103,6 +108,7 @@ private
 {$ifdef read_implementation}
 
 {$I castlewindow_winapi_menu.inc}
+{$I castlewindow_winapi_sendinput.inc}
 
 { WMSizing ------------------------------------------------------------------- }
 
@@ -147,7 +153,7 @@ begin
   result := LRESULT(msg.Result);
 end;
 
-{ TCastleWindowCustom ------------------------------------------------- }
+{ TCastleWindowBase ------------------------------------------------- }
 
 const
   { Some constants missing from FPC's Windows unit. }
@@ -165,106 +171,106 @@ const
   VK_OEM_8 = $DF;
   VK_OEM_102 = $E2;
 
-{ convert virtual key code (VK_xxx) to TKey. Returns K_None if no conversion
+{ convert virtual key code (VK_xxx) to TKey. Returns keyNone if no conversion
   available. }
-function TCastleWindowCustom.VirtualKeyToKey(VirtualKey: Byte): TKey;
+function TCastleWindowBase.VirtualKeyToKey(VirtualKey: Byte): TKey;
 var
   VirtualKeyToKeyResult: TKey absolute Result;
 
-  function VK_Stored(VK_Exists: boolean; VK_Value: Byte; K_Value: TKey): boolean;
+  function VK_Stored(VK_Exists: boolean; VK_Value: Byte; KeyValue: TKey): boolean;
   begin
     Result := VK_Exists and (VirtualKey = VK_Value);
     if Result then
-      VirtualKeyToKeyResult := K_Value;
+      VirtualKeyToKeyResult := KeyValue;
   end;
 
 begin
   { Tests: InfoWrite(Format('key %d', [VirtualKey])); }
 
   case VirtualKey of
-    VK_BACK: Result := K_BackSpace;
-    VK_TAB: Result := K_Tab;
-    VK_RETURN: Result := K_Enter;
-    VK_SHIFT: Result := K_Shift;
-    VK_CONTROL: Result := K_Ctrl;
-    VK_MENU: Result := K_Alt;
-    VK_ESCAPE: Result := K_Escape;
-    VK_SPACE: Result := K_Space;
-    VK_PRIOR: Result := K_PageUp;
-    VK_NEXT: Result := K_PageDown;
-    VK_END: Result := K_End;
-    VK_HOME: Result := K_Home;
-    VK_LEFT: Result := K_Left;
-    VK_UP: Result := K_Up;
-    VK_RIGHT: Result := K_Right;
-    VK_DOWN: Result := K_Down;
-    VK_INSERT: Result := K_Insert;
-    VK_DELETE: Result := K_Delete;
-    VK_ADD: Result := K_Numpad_Plus;
-    VK_SUBTRACT: Result := K_Numpad_Minus;
-    VK_SNAPSHOT: Result := K_PrintScreen;
-    VK_NUMLOCK: Result := K_NumLock;
-    VK_SCROLL: Result := K_ScrollLock;
-    VK_CAPITAL: Result := K_CapsLock;
-    VK_PAUSE: Result := K_Pause;
-    VK_OEM_COMMA: Result := K_Comma;
-    VK_OEM_PERIOD: Result := K_Period;
-    VK_NUMPAD0: Result := K_Numpad_0;
-    VK_NUMPAD1: Result := K_Numpad_1;
-    VK_NUMPAD2: Result := K_Numpad_2;
-    VK_NUMPAD3: Result := K_Numpad_3;
-    VK_NUMPAD4: Result := K_Numpad_4;
-    VK_NUMPAD5: Result := K_Numpad_5;
-    VK_NUMPAD6: Result := K_Numpad_6;
-    VK_NUMPAD7: Result := K_Numpad_7;
-    VK_NUMPAD8: Result := K_Numpad_8;
-    VK_NUMPAD9: Result := K_Numpad_9;
-    VK_CLEAR: Result := K_Numpad_Begin;
-    VK_MULTIPLY: Result := K_Numpad_Multiply;
-    VK_DIVIDE: Result := K_Numpad_Divide;
-    VK_OEM_MINUS: Result := K_Minus;
-    VK_OEM_PLUS: Result := K_Plus;
+    VK_BACK: Result := keyBackSpace;
+    VK_TAB: Result := keyTab;
+    VK_RETURN: Result := keyEnter;
+    VK_SHIFT: Result := keyShift;
+    VK_CONTROL: Result := keyCtrl;
+    VK_MENU: Result := keyAlt;
+    VK_ESCAPE: Result := keyEscape;
+    VK_SPACE: Result := keySpace;
+    VK_PRIOR: Result := keyPageUp;
+    VK_NEXT: Result := keyPageDown;
+    VK_END: Result := keyEnd;
+    VK_HOME: Result := keyHome;
+    VK_LEFT: Result := keyLeft;
+    VK_UP: Result := keyUp;
+    VK_RIGHT: Result := keyRight;
+    VK_DOWN: Result := keyDown;
+    VK_INSERT: Result := keyInsert;
+    VK_DELETE: Result := keyDelete;
+    VK_ADD: Result := keyNumpadPlus;
+    VK_SUBTRACT: Result := keyNumpadMinus;
+    VK_SNAPSHOT: Result := keyPrintScreen;
+    VK_NUMLOCK: Result := keyNumLock;
+    VK_SCROLL: Result := keyScrollLock;
+    VK_CAPITAL: Result := keyCapsLock;
+    VK_PAUSE: Result := keyPause;
+    VK_OEM_COMMA: Result := keyComma;
+    VK_OEM_PERIOD: Result := keyPeriod;
+    VK_NUMPAD0: Result := keyNumpad0;
+    VK_NUMPAD1: Result := keyNumpad1;
+    VK_NUMPAD2: Result := keyNumpad2;
+    VK_NUMPAD3: Result := keyNumpad3;
+    VK_NUMPAD4: Result := keyNumpad4;
+    VK_NUMPAD5: Result := keyNumpad5;
+    VK_NUMPAD6: Result := keyNumpad6;
+    VK_NUMPAD7: Result := keyNumpad7;
+    VK_NUMPAD8: Result := keyNumpad8;
+    VK_NUMPAD9: Result := keyNumpad9;
+    VK_CLEAR: Result := keyNumpadBegin;
+    VK_MULTIPLY: Result := keyNumpadMultiply;
+    VK_DIVIDE: Result := keyNumpadDivide;
+    VK_OEM_MINUS: Result := keyMinus;
+    VK_OEM_PLUS: Result := keyPlus;
 
-    Ord('0') .. Ord('9'): Result := TKey(Ord(K_0)  + Ord(VirtualKey) - Ord('0'));
-    Ord('A') .. Ord('Z'): Result := TKey(Ord(K_A)  + Ord(VirtualKey) - Ord('A'));
-    VK_F1    .. VK_F12  : Result := TKey(Ord(K_F1) + Ord(VirtualKey) - Ord(VK_F1));
+    Ord('0') .. Ord('9'): Result := TKey(Ord(key0)  + Ord(VirtualKey) - Ord('0'));
+    Ord('A') .. Ord('Z'): Result := TKey(Ord(keyA)  + Ord(VirtualKey) - Ord('A'));
+    VK_F1    .. VK_F12  : Result := TKey(Ord(keyF1) + Ord(VirtualKey) - Ord(VK_F1));
     else
-      if not VK_Stored(VK_LeftBracket_Exists , VK_LeftBracket , K_LeftBracket ) then
-      if not VK_Stored(VK_RightBracket_Exists, VK_RightBracket, K_RightBracket) then
-      if not VK_Stored(VK_Apostrophe_Exists  , VK_Apostrophe  , K_Apostrophe  ) then
-      if not VK_Stored(VK_Semicolon_Exists   , VK_Semicolon   , K_Semicolon   ) then
-      if not VK_Stored(VK_Slash_Exists       , VK_Slash       , K_Slash       ) then
-      if not VK_Stored(VK_BackQuote_Exists   , VK_BackQuote   , K_BackQuote   ) then
-      if not VK_Stored(VK_BackSlash_Exists   , VK_BackSlash   , K_BackSlash   ) then
-        Result := K_None;
+      if not VK_Stored(VK_LeftBracket_Exists , VK_LeftBracket , keyLeftBracket ) then
+      if not VK_Stored(VK_RightBracket_Exists, VK_RightBracket, keyRightBracket) then
+      if not VK_Stored(VK_Apostrophe_Exists  , VK_Apostrophe  , keyApostrophe  ) then
+      if not VK_Stored(VK_Semicolon_Exists   , VK_Semicolon   , keySemicolon   ) then
+      if not VK_Stored(VK_Slash_Exists       , VK_Slash       , keySlash       ) then
+      if not VK_Stored(VK_BackQuote_Exists   , VK_BackQuote   , keyBackQuote   ) then
+      if not VK_Stored(VK_BackSlash_Exists   , VK_BackSlash   , keyBackSlash   ) then
+        Result := keyNone;
   end;
 
   { Note that CastleWindow WinAPI will never generate Press/Release with these keys:
-      K_Numpad_End;
-      K_Numpad_Down;
-      K_Numpad_PageDown;
-      K_Numpad_Left;
-      K_Numpad_Right;
-      K_Numpad_Home;
-      K_Numpad_Up;
-      K_Numpad_PageUp;
-      K_Numpad_Insert;
-      K_Numpad_Delete;
-      K_Numpad_Enter;
+      keyNumpadEnd;
+      keyNumpadDown;
+      keyNumpadPageDown;
+      keyNumpadLeft;
+      keyNumpadRight;
+      keyNumpadHome;
+      keyNumpadUp;
+      keyNumpadPageUp;
+      keyNumpadInsert;
+      keyNumpadDelete;
+      keyNumpadEnter;
     because (as far as I can see) they are undistinguishable from normal,
     non-numpad key codes under WinAPI.
 
-    Note that it seems that VK_SNAPSHOT (K_PrintScreen) is never passed to
+    Note that it seems that VK_SNAPSHOT (keyPrintScreen) is never passed to
     WM_KEYDOWN (although it's passed to WM_KEYUP; but there we ignore it,
     because in our Keys[] table it's already up).
-    So you will never get KeyDown/Up with K_PrintScreen. }
+    So you will never get KeyDown/Up with keyPrintScreen. }
 end;
 
 function TryHandlingMessage(hWnd: HWND; uMsg: UINT; wParm: WPARAM; lParm: LPARAM): boolean;
 var
-  Window: TCastleWindowCustom;
+  Window: TCastleWindowBase;
 begin
-  Window := TCastleWindowCustom(GetWindowLongPtr(hWnd, GWL_USERDATA));
+  Window := TCastleWindowBase(GetWindowLongPtr(hWnd, GWL_USERDATA));
   Result := Application.FindWindow(Window) >= 0;
   if Result then
     Window.WindowProc(uMsg, wParm, lParm);
@@ -272,9 +278,9 @@ end;
 
 function WndProc(hWnd: HWND; uMsg: UINT; wParm: WPARAM; lParm: LPARAM) :LRESULT; stdcall;
 var
-  Window: TCastleWindowCustom;
+  Window: TCastleWindowBase;
 begin
-  Window := TCastleWindowCustom(GetWindowLongPtr(hWnd, GWL_USERDATA));
+  Window := TCastleWindowBase(GetWindowLongPtr(hWnd, GWL_USERDATA));
   { Wszystkie hwnd jakie tu beda wpadac to beda nasze okna
     (it's only different for a plugin, but right now the plugin uses only TryHandlingMessage,
     not this). Ale zanim
@@ -297,7 +303,7 @@ begin
     result := DefWindowProc(hWnd, uMsg, wParm, lParm);
 end;
 
-function TCastleWindowCustom.WindowProc(uMsg: UINT; wParm: WPARAM; lParm: LPARAM): LRESULT;
+function TCastleWindowBase.WindowProc(uMsg: UINT; wParm: WPARAM; lParm: LPARAM): LRESULT;
 
 { Note: the following Windows events may be called from CloseBackend
   (so they probably should check InCloseBackend):
@@ -342,23 +348,30 @@ function TCastleWindowCustom.WindowProc(uMsg: UINT; wParm: WPARAM; lParm: LPARAM
 
   function InterceptedSystemKey(key: integer): boolean;
   begin
-    Result := { TODO-alt: (key = K_Alt) or }(key = VK_F10)
+    Result := { TODO-alt: (key = VK_Alt) or }(key = VK_F10)
   end;
 
+  { Handle WinAPI WM_KEYDOWN message by calling DoKeyDown method.
+    We also handle (peek and remove) WM_CHAR message here. }
   procedure Handle_WM_KEYDOWN;
-  { Notka:
-    Windows wysyla nam WM_KEYDOWN co jakis czas dopoki user trzyma dany klawisz.
-    Czestotliwosc wysylania WM_KEYDOWN zalezy od ustawien autorepeat klawiatury.
-    To czy klawisz zostal wcisniety po raz pierwszy czy tez jest to jego auto-repeat
-    mozna ustalic badajac bit KEY_ALREADY_DOWN w lParm; ale nie robie tego, bo to
-    dziala ok. EventKeyDown jest wywolywane wielokrotnie gdy ktos trzyma wcisniety
-    klawisz. Mialem tutaj kiedys implementacje wlasnego autorepeata z wlasnym
-    KeyDownDelay ale byla niepotrzebna, przeciez Windows automatycznie robi
-    wszystko ok. }
+
+  { Note that WM_KEYDOWN is repeated when the user holds the key down.
+    The frequency of "key repeat" depends on user settings.
+
+    And... that's completely OK. We still pass each WM_KEYDOWN to DoKeyDown.
+    This way our API (TCastleUserInterface.Press, TCastleWindowBase.OnPress)
+    will generate repeated key presses.
+    This is documented and desired (e.g. for implementing UI like edit box).
+    User can check TInputPressRelease.KeyRepeated that is calculated
+    elsewhere. (We could also calculate TInputPressRelease.KeyRepeated here,
+    looking at KEY_ALREADY_DOWN bit in lParm, but it's not needed for now.)
+  }
+
   var
     Key: TKey;
     CharMsg: TMsg;
-    CharKey: char;
+    KeyChar: WideChar;
+    KeyString: string;
   begin
     { WM_CHAR is placed in our message queue by TranslateMessage.
       Always in WM_KEYDOWN we do this PeekMessage(..., WM_CHAR, WM_CHAR, PM_REMOVE).
@@ -367,9 +380,22 @@ function TCastleWindowCustom.WindowProc(uMsg: UINT; wParm: WPARAM; lParm: LPARAM
          WM_KEYDOWN message is not translatable as WM_CHAR) OR
       2. we have exactly one WM_CHAR message in our queue, and this is WM_CHAR
          message corresponding to current WM_KEYDOWN message. }
+
     if PeekMessage(@CharMsg, h_Wnd, WM_CHAR, WM_CHAR, PM_REMOVE) then
-      CharKey := Chr(CharMsg.wParam) else
-      CharKey := #0;
+    begin
+      { Now we do some unsafe magic.
+        MultiByteToWideChar converts wParam:longint to a KeyChar:WideChar
+        which should be UTF-16. "Should" doesn't mean it is.
+        First problem here is that not all characters can fit into UTF-16.
+        Second, we suggest that system-wide default encoding CP_ACP is the default
+        for current thread, however CP_THREAD_ACP should be used better,
+        thou it is unavailable in defines.inc }
+      MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, @CharMsg.wParam, SizeOf(CharMsg.wParam), @KeyChar, SizeOf(KeyChar));
+      { Now, hopefully convert WideChar to UTF8Char }
+      KeyString := UTF8Encode(KeyChar);
+    end
+    else
+      KeyString := '';
 
     Key := VirtualKeyToKey(wParm);
 
@@ -379,46 +405,51 @@ function TCastleWindowCustom.WindowProc(uMsg: UINT; wParm: WPARAM; lParm: LPARAM
 
       So below we do a little trick: we check which virtual key corresponds to
       left/right brackets, and we remember it. If my VirtualKeyToKey returned
-      K_None for this virtual key, then we can safely assume that in the future
+      keyNone for this virtual key, then we can safely assume that in the future
       (e.g. for next WM_KEYUP for this key) this virtual key always corresponds
       to left/right bracket. }
-    if Key = K_None then
+    if Key = keyNone then
     begin
-      case CharKey of
-        '[' : begin VK_LeftBracket_Exists  := true; VK_LeftBracket  := wParm; Key := K_LeftBracket ; end;
-        ']' : begin VK_RightBracket_Exists := true; VK_RightBracket := wParm; Key := K_RightBracket; end;
-        '''': begin VK_Apostrophe_Exists   := true; VK_Apostrophe   := wParm; Key := K_Apostrophe  ; end;
-        ';' : begin VK_Semicolon_Exists    := true; VK_Semicolon    := wParm; Key := K_Semicolon   ; end;
-        '/' : begin VK_Slash_Exists        := true; VK_Slash        := wParm; Key := K_Slash       ; end;
-        '`' : begin VK_BackQuote_Exists    := true; VK_BackQuote    := wParm; Key := K_BackQuote   ; end;
-        '\' : begin VK_BackSlash_Exists    := true; VK_BackSlash    := wParm; Key := K_BackSlash   ; end;
+      case KeyString of
+        '[' : begin VK_LeftBracket_Exists  := true; VK_LeftBracket  := wParm; Key := keyLeftBracket ; end;
+        ']' : begin VK_RightBracket_Exists := true; VK_RightBracket := wParm; Key := keyRightBracket; end;
+        '''': begin VK_Apostrophe_Exists   := true; VK_Apostrophe   := wParm; Key := keyApostrophe  ; end;
+        ';' : begin VK_Semicolon_Exists    := true; VK_Semicolon    := wParm; Key := keySemicolon   ; end;
+        '/' : begin VK_Slash_Exists        := true; VK_Slash        := wParm; Key := keySlash       ; end;
+        '`' : begin VK_BackQuote_Exists    := true; VK_BackQuote    := wParm; Key := keyBackQuote   ; end;
+        '\' : begin VK_BackSlash_Exists    := true; VK_BackSlash    := wParm; Key := keyBackSlash   ; end;
       end;
     end;
 
-    if (Key <> K_None) or (CharKey <> #0) then DoKeyDown(Key, CharKey);
+    { Fix some cases when KeyString should better correspond to Key }
+    if (KeyString = '') and (Key = keyDelete) then
+      KeyString := CharDelete;
+
+    if (Key <> keyNone) or (KeyString <> '') then DoKeyDown(Key, KeyString);
   end;
 
+  { Handle WinAPI WM_KEYUP message by calling DoKeyUp method. }
   procedure Handle_WM_KEYUP;
   var
     Key: TKey;
   begin
     Key := VirtualKeyToKey(wParm);
-    if Key <> K_None then DoKeyUp(Key);
+    if Key <> keyNone then DoKeyUp(Key);
   end;
 
   procedure HandleMouseDown(const Button: TMouseButton);
   begin
     MaybeCapture;
-    DoMouseDown(Vector2(
-                   TWinParam(lParm).LoSmallint,
-      Height - 1 - TWinParam(lParm).HiSmallint), Button, 0);
+    DoMouseDown(LeftTopToCastle(
+      TWinParam(lParm).LoSmallint,
+      TWinParam(lParm).HiSmallint), Button, 0);
   end;
 
   procedure HandleMouseUp(const Button: TMouseButton);
   begin
-    DoMouseUp(Vector2(
-                   TWinParam(lParm).LoSmallint,
-      Height - 1 - TWinParam(lParm).HiSmallint), Button, 0);
+    DoMouseUp(LeftTopToCastle(
+      TWinParam(lParm).LoSmallint,
+      TWinParam(lParm).HiSmallint), Button, 0);
     MaybeRelease;
   end;
 
@@ -495,47 +526,48 @@ begin
         Exit;
       end;
     WM_MOVE:
-       {WM_MOVE zachowuje sie jakby bylo resize, bo po przesunieciu okna
-        takze jest wymagane glViewport. Nie jestem pewien czy jest to niedorobka
-        w implementacji openGL'a pod Windowsem czy jest to dopuszczalne - w kazdym
-        razie musimy tak robic, co latwo sprawdzic wywolujac OpenGL_windowed, przesuwajac
-        okno mysza a potem robiac glRedPixels (odczyta pixele z miejsca w ktorym BYLO
-        nasza okienko, czyli odczyta jakis kawalek desktopu, innych aplikacji itp.) }
+       { For some reason, you need to call glViewport at WM_MOVE
+         (when window moved) on Windows.
+         Otherwise moving a window, and doing glRedPixels, reads pixels
+         at *old window placement*. }
       begin
         fLeft := TWinParam(lParm).LoSmallint;
         fTop := TWinParam(lParm).HiSmallint;
 
-        { You know it, and I know it: WinAPI is so damn stupid and inconsistent.
-          What's up this time ? Well, I want to update Left and Top below to the position
+        { We need a hack in case of FullScreen and menu.
+
+          We want to update Left and Top below to the position
           on the screen of our client area. "Client area" means tha place where OpenGL
           context is --- it's the window without the border, title bar and menu bar
-          (if MainMenu <> nil). I need this, because
+          (if MainMenu <> nil). We need this, because
 
           1. Left and Top are said in unit's interface to work like that
-          2. SetMousePosition requires this. Otherwise positions set by SetMousePosition
-             and read by MousePosition properties would be slightly different.
-             And there are real cases when this is extremely important that they use
-             exactly the same coordinate systems --- see e.g. mouse look handling in
-             TCastleWindowCustom.EventMotion.
 
-          So what's the problem ? Well, if the window is not FullScreen, Left and Top
-          as recorded in lParm are exactly what I want. But when FullScreen, Left and Top
+          2. SetMousePosition requires this. Otherwise positions
+             set by SetMousePosition and read by MousePosition properties
+             would be slightly different.
+             And there are cases when it is important that they use
+             exactly the same coordinate systems --- e.g. mouse look handling.
+
+          When the window is not FullScreen, WinAPI behaves nice,
+          and Left and Top as recorded in lParm are exactly what I want.
+
+          But when the window is FullScreen, Left and Top
           are always 0, 0 --- which means that they don't take menu bar height into
-          account. The effect: mouse look + menu bar + fullscreen mode don't work
-          (i.e. user is unable to do mouse look, TCastleWindowCustom.EventMotion always
-          ignores it). Tested on view3dscene.
+          account. The effect: mouse look + menu bar + fullscreen mode don't work.
 
-          So I workaround this by adding CYMENU. This is not perfect, as this assumes
+          We workaround this by adding CYMENU. This is not perfect, as this assumes
           that menu bar will always be a single line.
-          Note that this is non-perfect also because WM_MOVE message may not get to
-          FullScreen window at all, so in OpenBackend I also do this trick. }
+          (This is also non-perfect anyway, because WM_MOVE message may not get to
+          FullScreen window at all, so in OpenBackend I also do this trick.) }
         if FullScreen and (MainMenu <> nil) and MainMenuVisible then
           FTop += GetSystemMetrics(SM_CYMENU);
 
-        { TODO: przerobic to na glViewport ? po co wywolywac tu OnResize ktore
-          moze robic tu mnostwo rzeczy ktore przeciez nie sa potrzebne, bo tak
-          naprawde nie zmienil sie size tylko position ? }
-        DoResize(fWidth, fHeight, false);
+        { TODO: Only position actually changed, not size.
+          Do we really need to call DoResize, OnResize?
+          Maybe we should just call only glViewport,
+          using current RenderContext.Viewport? }
+        DoResize(fRealWidth, fRealHeight, false);
         Exit;
       end;
     WM_SIZING:
@@ -543,20 +575,20 @@ begin
         result := WMSizingHandler(lParm, wParm, minWidth, minHeight, maxWidth, maxHeight);
         Exit;
       end;
-     { We do not capture WM_PAINT, let WM_PAINT fallback to DefWindowProc.
-       WM_PAINT occurs also when there's a need to redraw window frame
-       (which we don't care about, we don't draw custom window frame).
+    { We do not capture WM_PAINT, let WM_PAINT fallback to DefWindowProc.
+      WM_PAINT occurs also when there's a need to redraw window frame
+      (which we don't care about, we don't draw custom window frame).
 
-       If there's a need to actually redraw window contents,
-       then WM_PAINT will cause (immediately, it seems that DefWindowProc
-       will just call WndProc) WM_ERASEBKGND, and we want to capture WM_ERASEBKGND. }
+      If there's a need to actually redraw window contents,
+      then WM_PAINT will cause (immediately, it seems that DefWindowProc
+      will just call WndProc) WM_ERASEBKGND, and we want to capture WM_ERASEBKGND. }
     WM_ERASEBKGND:
       begin
         if IsWindowEnabled(H_Wnd) then
           Invalidate else
           { If not IsWindowEnabled then we have a modal window blocking our window.
             Like a Windows.MessageBox. In this case, our Application.ProcessMessage
-            may not be continously called, so we cannot use normal Invalidate
+            may not be continuously called, so we cannot use normal Invalidate
             and depend that window will be repainted soon.
 
             IOW, right now we're in WindowProc but not because of calling
@@ -627,14 +659,14 @@ begin
     WM_MOUSEMOVE:
       begin
         { We could refresh FMousePressed now:
-            FmousePressed:=[];
-            if (MK_LBUTTON and wParm) <> 0 then Include(fmousePressed, mbLeft);
-            if (MK_MBUTTON and wParm) <> 0 then Include(fmousePressed, mbMiddle);
-            if (MK_RBUTTON and wParm) <> 0 then Include(fmousePressed, mbRight);
+            FMousePressed := [];
+            if (MK_LBUTTON and wParm) <> 0 then Include(FMousePressed, mbLeft);
+            if (MK_MBUTTON and wParm) <> 0 then Include(FMousePressed, mbMiddle);
+            if (MK_RBUTTON and wParm) <> 0 then Include(FMousePressed, mbRight);
           but it's not needed (we keep it current anyway in mousedown/up events). }
-        DoMotion(InputMotion(MousePosition, Vector2(
-                         TWinParam(lParm).LoSmallint,
-            Height - 1 - TWinParam(lParm).HiSmallint),
+        DoMotion(InputMotion(MousePosition, LeftTopToCastle(
+          TWinParam(lParm).LoSmallint,
+          TWinParam(lParm).HiSmallint),
           MousePressed, 0));
         Exit;
       end;
@@ -666,25 +698,24 @@ begin
       There's some uncertainty whether doing SetCursor calls so often (each WM_SETCURSOR,
       each mouse move !) will not decrease performance --- but, well, there seems to be
       no other way, and SetCursor docs guarantee that SetCursor checks whether cursor
-      changes. In no change, SetCursor returns immediately. So, we feel a little safer
+      changes. If no change, SetCursor returns immediately. So, we feel a little safer
       that we use CursorHandles[Cursor].Handle, so when Cursor stays the same, SetCursor
       is called with exactly the same arguments. }
     WM_SETCURSOR:
       begin
-        { Falling back on DefWindowProc means that it will install
-          our window class cursor (or parent cursor) if in client area,
-          or just do the right thing if outside client area.
-          So it's suitable when wParm <> h_Wnd or we want mcDefault. }
-        if wParm = h_Wnd then
-          case InternalCursor of
-            mcDefault: { Fallback on DefWindowProc };
-            mcCustom: { TODO, for now behave like mcDefault };
-            else
-              begin
-                Windows.SetCursor(Application.CursorHandles[InternalCursor].Handle);
-                Exit(1);
-              end;
-          end;
+        if (WParm = h_Wnd) and
+           ( (InternalCursor in [mcNone, mcForceNone]) or
+             (Application.CursorHandles[InternalCursor].Handle <> 0) ) then
+        begin
+          Windows.SetCursor(Application.CursorHandles[InternalCursor].Handle);
+          Exit(1);
+        end;
+        { Otherwise we fall back on DefWindowProc.
+          It will install our window class cursor (or parent cursor)
+          if in client area, or just do the right thing if outside client area.
+          So it's suitable when wParm <> h_Wnd,
+          or we want mcDefault,
+          or we want mcCustom. }
       end;
 
     WM_MOUSEWHEEL, WM_MOUSEHWHEEL:
@@ -692,6 +723,51 @@ begin
         if TWinParam(WParm).HiSmallInt <> 0 then
           DoMouseWheel(TWinParam(WParm).HiSmallInt / 120, uMsg = WM_MOUSEWHEEL);
         Exit;
+      end;
+
+    { Event received when something in Windows configuration had been changed,
+      most often this means connecting/disconnecting plug-n-play devices.
+      Here we use it to detect DBT_DEVICEARRIVAL and DBT_DEVICEREMOVECOMPLETE events
+      which correspond to adding or removing devices and suggest those are
+      caused by connecting/disconnecting a Joystick from the system. }
+    WM_DEVICECHANGE:
+      begin
+        case WParm of
+          { A device has been sucessfully added to the system }
+          DBT_DEVICEARRIVAL:
+            begin
+              WriteLnLog('Received a WM_DEVICECHANGE event with DBT_DEVICEARRIVAL');
+              //it might be a joystick, therefore
+              Joysticks.InternalConnected;
+            end;
+          { A device has been successfully removed from the system.
+            Currently we more reliably handle this case in Joystick backend Poll
+            because DBT_DEVICEREMOVECOMPLETE is sent by many different devices
+            e.g. such as USB flash drive and it isn't right to treat all of these
+            as disconnected joysticks. E.g. according to Steam recommendations
+            the game should be set to pause when the joystick is disconnected,
+            but forcing pause mode every time some arbitrary device has disconnected
+            may be inconsistent and look like a bug to the user.
+            The backend does this job better:
+            1. The InternalDisconnected is sent immediately after the joystick has
+               been disconnected, while WinAPI message comes with a delay ~0.5 seconds.
+            2. Backend Poll guarantees that disconnect event comes from a previously
+               connected joystick, not from any device.
+            3. Backend Poll guarantees to send the InternalDisconnected event when
+               joystick stopped working properly, while WinAPI behavior may depend
+               on joystick driver implementation. }
+          {DBT_DEVICEREMOVECOMPLETE:
+            begin
+              WriteLnLog('Received a WM_DEVICECHANGE event with DBT_DEVICEREMOVECOMPLETE');
+              //it might be a joystick, therefore
+              Joysticks.InternalDisconnected;
+            end;}
+          { Something unspecified has changed in the system devices configuration
+            We don't need to handle this case because we are subscribed to more specific
+            joystick connect/disconnect events through RegisterDeviceNotification. }
+          //DBT_DEVNODES_CHANGED: WriteLnLog('Received a WM_DEVICECHANGE event with DBT_DEVNODES_CHANGED');
+        end;
+        Exit(1);
       end;
   end;
 
@@ -746,12 +822,12 @@ begin
   end;
 end;
 
-function TCastleWindowCustom.RedirectKeyDownToMenuClick: boolean;
+function TCastleWindowBase.RedirectKeyDownToMenuClick: boolean;
 begin
   Result := true;
 end;
 
-procedure TCastleWindowCustom.BackendMenuFinalize;
+procedure TCastleWindowBase.BackendMenuFinalize;
 var
   Old_H_Menu: HMenu;
 begin
@@ -762,35 +838,35 @@ begin
   MainMenu.ClearHandles;
 end;
 
-procedure TCastleWindowCustom.BackendMenuInitialize;
+procedure TCastleWindowBase.BackendMenuInitialize;
 begin
   OSCheck( SetMenu(H_Wnd, MakeWinapiMenu(MainMenu, true)), 'SetMenu');
 end;
 
-procedure TCastleWindowCustom.MenuUpdateCaption(Entry: TMenuEntryWithCaption);
+procedure TCastleWindowBase.MenuUpdateCaption(Entry: TMenuEntryWithCaption);
 begin
   MenuFinalize;
   MenuInitialize;
 end;
 
-procedure TCastleWindowCustom.MenuUpdateEnabled(Entry: TMenuEntryWithCaption);
+procedure TCastleWindowBase.MenuUpdateEnabled(Entry: TMenuEntryWithCaption);
 begin
   MenuFinalize;
   MenuInitialize;
 end;
 
-procedure TCastleWindowCustom.MenuUpdateChecked(Entry: TMenuItemChecked);
+procedure TCastleWindowBase.MenuUpdateChecked(Entry: TMenuItemChecked);
 begin
   MenuFinalize;
   MenuInitialize;
 end;
 
-function TCastleWindowCustom.MenuUpdateCheckedFast: boolean;
+function TCastleWindowBase.MenuUpdateCheckedFast: boolean;
 begin
   Result := false;
 end;
 
-procedure TCastleWindowCustom.MenuInsert(const Parent: TMenu;
+procedure TCastleWindowBase.MenuInsert(const Parent: TMenu;
   const ParentPosition: Integer; const Entry: TMenuEntry);
 begin
   { TODO: unoptimal }
@@ -798,7 +874,7 @@ begin
   MenuInitialize;
 end;
 
-procedure TCastleWindowCustom.MenuDelete(const Parent: TMenu;
+procedure TCastleWindowBase.MenuDelete(const Parent: TMenu;
   const ParentPosition: Integer; const Entry: TMenuEntry);
 begin
   { TODO: unoptimal }
@@ -806,7 +882,62 @@ begin
   MenuInitialize;
 end;
 
-procedure TCastleWindowCustom.OpenBackend;
+procedure TCastleWindowBase.OpenBackend;
+
+  // Get initial MousePosition, even before the first mouse move/down event.
+  procedure GetInitialCursorPos(const ClientRect: TRect);
+  var
+    InitialCursorPos: Windows.TPoint;
+  begin
+    if GetCursorPos(@InitialCursorPos) then
+    begin
+      FMousePosition := LeftTopToCastle(
+        InitialCursorPos.X - ClientRect.Left,
+        InitialCursorPos.Y - ClientRect.Top);
+    end;
+  end;
+
+  procedure InitializeDpi;
+  begin
+    FDpi := GetDeviceCaps(h_Dc, LOGPIXELSX);
+    WritelnLog('WinAPI', 'Dots (pixels) per inch is %f (%f * default %f)',
+      [FDpi, FDpi / DefaultDpi, DefaultDpi]);
+  end;
+
+  { Request WinAPI to send DBT_DEVICEARRIVAL and DBT_DEVICEREMOVECOMPLETE events
+    when new Joysticks have been connected to the system }
+  procedure RegisterForJoystickEvents;
+  var
+    BroadcastDeviceInterface: DEV_BROADCAST_DEVICEINTERFACE;
+    GUID_DEVINTERFACE_HID: GUID;
+    DeviceNotification: Pointer; // HDEVNOTIFY;
+  begin
+    { Construct GUID that corresponds to Joysticks/controllers devices
+      The values have been taken from SDL2 SDL_windowsjoystick.c }
+    GUID_DEVINTERFACE_HID.Data1 := $4D1E55B2;
+    GUID_DEVINTERFACE_HID.Data2 := $F16F;
+    GUID_DEVINTERFACE_HID.Data3 := $11CF;
+    GUID_DEVINTERFACE_HID.Data4[0] := $88;
+    GUID_DEVINTERFACE_HID.Data4[1] := $CB;
+    GUID_DEVINTERFACE_HID.Data4[2] := 0;
+    GUID_DEVINTERFACE_HID.Data4[3] := $11;
+    GUID_DEVINTERFACE_HID.Data4[4] := $11;
+    GUID_DEVINTERFACE_HID.Data4[5] := 0;
+    GUID_DEVINTERFACE_HID.Data4[6] := 0;
+    GUID_DEVINTERFACE_HID.Data4[7] := $30;
+
+    //construct BroadcastDeviceInterface record
+    FillChar(BroadcastDeviceInterface, SizeOf(BroadcastDeviceInterface), 0);
+    BroadcastDeviceInterface.dbcc_size := sizeof(DEV_BROADCAST_DEVICEINTERFACE);
+    BroadcastDeviceInterface.dbcc_devicetype := DBT_DEVTYP_DEVICEINTERFACE;
+    BroadcastDeviceInterface.dbcc_classguid := GUID_DEVINTERFACE_HID;
+    { Ask WinAPI to send DBT_DEVICEARRIVAL and DBT_DEVICEREMOVECOMPLETE events
+      for the requested GUID }
+    DeviceNotification := RegisterDeviceNotification(h_Wnd, @BroadcastDeviceInterface, DEVICE_NOTIFY_WINDOW_HANDLE);
+    if not Assigned(DeviceNotification) then
+      WriteLnWarning('Unable to RegisterDeviceNotification. Connecting/disconnecting joysticks will not be reported.');
+  end;
+
 var
   {$ifndef CASTLE_ENGINE_PLUGIN}
   dwExStyle, dwStyle: dword;
@@ -826,7 +957,7 @@ begin
   {$else}
   { optionally hide mouse in FullScreem,
     set dwStyle and dwExStyle for our window }
-  if FFullScreen then
+  if FullScreen then
   begin
     WindowRect := Bounds(0, 0, Application.ScreenWidth, Application.ScreenHeight);
     dwExStyle := WS_EX_APPWINDOW;
@@ -877,12 +1008,12 @@ begin
 
       This means that actual OpenGL area size may be different than
       requested (OnResize will report it corectly, eventually lying, honoring
-      ResizeAllowed properrty). Happened e.g. when glViewImage allowed minimal
+      ResizeAllowed properrty). Happened e.g. when castle-view-image allowed minimal
       window size = 200, and default welcome image had 256x256 pixels.
-      When you opened glViewImage with no params in directory with no images,
+      When you opened castle-view-image with no params in directory with no images,
       then OpenGL area of size 256x256 was requested, which was so narrow that
       menu bar wrapped. Which made OpenGL area not tall enough for 256 pixels,
-      and glViewImage had to add a vertical scrollbar to display welcome image.
+      and castle-view-image had to add a vertical scrollbar to display welcome image.
     }
     AdjustWindowRectEx(WindowRect, dwStyle,
       (MainMenu <> nil) and MainMenuVisible, dwExStyle);
@@ -943,6 +1074,8 @@ begin
   end;
   {$endif}
 
+  OSCheck(GetClientRect(h_Wnd, ClientRect), 'GetClientRect');
+
   { Windows does not send us WM_SIZE messages when FullScreen (that's probably
     caused by our special dwStyle and dwStyleEx for FullScreen, probably
     by the lack of WS_OVERLAPPED in dwStyle). So we should simulate it here,
@@ -953,12 +1086,17 @@ begin
     (we don't care here about ResizeAllowed, DoResize will take care of averything). }
   if FullScreen then
   begin
-    OSCheck( GetClientRect(h_Wnd, ClientRect), 'GetClientRect');
-    DoResize(ClientRect.Right - ClientRect.Left, ClientRect.Bottom - ClientRect.Top, false);
+    DoResize(ClientRect.Right - ClientRect.Left,
+             ClientRect.Bottom - ClientRect.Top, false);
   end;
+
+  GetInitialCursorPos(ClientRect);
+  InitializeDpi;
+
+  RegisterForJoystickEvents;
 end;
 
-procedure TCastleWindowCustom.SetCursor(const Value: TMouseCursor);
+procedure TCastleWindowBase.SetCursor(const Value: TMouseCursor);
 var
   Point: Windows.TPoint;
 begin
@@ -979,13 +1117,54 @@ begin
   end;
 end;
 
-procedure TCastleWindowCustom.SetCustomCursor(const Value: TRGBAlphaImage);
+procedure TCastleWindowBase.SetCustomCursor(const Value: TRGBAlphaImage);
 begin
   FCustomCursor := Value;
   { TODO }
 end;
 
-procedure TCastleWindowCustom.SetMousePosition(const Value: TVector2);
+procedure TCastleWindowBase.SetMousePosition(const Value: TVector2);
+
+  { Perform similar function as WinAPI SetCursorPos (set cursor position,
+    given absolute screen coordinates), but using SendInput WinAPI call.
+    This is more reliable, which can be observed when using MouseLook.
+
+    Testcase: dragging_test, if we would use SetCursorPos then:
+
+    - TUIContainer.MouseLookDelta doesn't set FMouseLookWaitingForMiddle to true:
+      then we have problems due to occasional rect jump, when moving mouse slowly
+      (because we need to set FMouseLookWaitingForMiddle to true!).
+
+    - TUIContainer.MouseLookDelta sets FMouseLookWaitingForMiddle to true:
+      then we have occasional "blocks" when moving mouse very fast
+      (like from edge to edge of the screen). Experimenting, we just
+      cannot reliably capture "the end of FMouseLookWaitingForMiddle",
+      no matter how small/large margin in ValidArea we use.
+
+    Info about SendInput:
+
+    - https://social.msdn.microsoft.com/Forums/sqlserver/en-US/72d2c30e-0689-4c80-bf02-dcbc33b7b7de/problems-with-getcursorpos-and-setcursorpos-when-running-directx11-on-windows-10
+      https://docs.microsoft.com/pl-pl/windows/win32/api/winuser/ns-winuser-mouseinput
+
+    - Possibly related:
+      https://github.com/gottebp/windows10-setcursorpos-bug-demonstration
+      http://www.cplusplus.com/forum/general/101920/
+  }
+  procedure SetCursorPosBySendInput(const X, Y: Integer);
+  var
+    I: TInput;
+  begin
+    FillChar(I, SizeOf(I), 0);
+    I.InputType := INPUT_MOUSE;
+    I.Mi.Flags := MOUSEEVENTF_MOVE or MOUSEEVENTF_ABSOLUTE;
+    I.Mi.Dx := (X * 65535) div Application.ScreenWidth;
+    I.Mi.Dy := (Y * 65535) div Application.ScreenHeight;
+    if SendInput(1, @I, SizeOf(I)) <> 1 then
+      WritelnWarning('Could not set mouse position with SendInput, WinAPI error');
+  end;
+
+var
+  P: TVector2Integer;
 begin
   if not Closed then
   begin
@@ -994,11 +1173,12 @@ begin
       unnecessary OnMotion on some systems while actual MousePosition didn't change. }
     if TVector2.PerfectlyEquals(Value, FMousePosition) then Exit;
 
-    SetCursorPos(Left + Floor(Value[0]), Top + Height - 1 - Floor(Value[1]));
+    P := CastleToLeftTopInt(Value);
+    SetCursorPosBySendInput(Left + P.X, Top + P.Y);
   end;
 end;
 
-procedure TCastleWindowCustom.CloseBackend;
+procedure TCastleWindowBase.CloseBackend;
 begin
   InCloseBackend := true;
   try
@@ -1015,17 +1195,17 @@ begin
   finally InCloseBackend := false; end;
 end;
 
-procedure TCastleWindowCustom.SetCaption(const Part: TCaptionPart; const Value: string);
+procedure TCastleWindowBase.SetCaption(const Part: TCaptionPart; const Value: string);
 begin
   FCaption[Part] := Value;
   if h_Wnd <> 0 then SetWindowText(h_Wnd, PChar(GetWholeCaption));
 end;
 
-procedure TCastleWindowCustom.CreateBackend;
+procedure TCastleWindowBase.CreateBackend;
 begin
 end;
 
-function TCastleWindowCustom.BackendFileDialog(const Title: string; var FileName: string;
+function TCastleWindowBase.BackendFileDialog(const Title: string; var FileName: string;
   OpenDialog: boolean; FileFilters: TFileFilterList): boolean;
 
   { Make path absolute. Same as ExpandFileName, but knows that
@@ -1249,7 +1429,7 @@ begin
   end;
 end;
 
-function TCastleWindowCustom.ColorDialog(var Color: TVector3): boolean;
+function TCastleWindowBase.ColorDialog(var Color: TVector3): boolean;
 
   function Vector3ToColorRef(const Value: TVector3): TColorRef;
   begin
@@ -1311,7 +1491,7 @@ const
     'Information');
 *)
 
-procedure TCastleWindowCustom.MessageOK(const S: string; const MessageType: TWindowMessageType);
+procedure TCastleWindowBase.MessageOK(const S: string; const MessageType: TWindowMessageType);
 begin
   CastleMessages.MessageOK(Self, S);
 
@@ -1330,7 +1510,7 @@ begin
   *)
 end;
 
-function TCastleWindowCustom.MessageYesNo(const S: string;
+function TCastleWindowBase.MessageYesNo(const S: string;
   const MessageType: TWindowMessageType): boolean;
 begin
   Result := CastleMessages.MessageYesNo(Self, S);
@@ -1347,9 +1527,9 @@ begin
   *)
 end;
 
-procedure TCastleWindowCustom.SetFullScreen(const Value: boolean);
+procedure TCastleWindowBase.UpdateFullScreenBackend;
 begin
-  SimpleSetFullScreen(Value);
+  SimpleUpdateFullScreenBackend;
 end;
 
 { TWinApiClipboard ----------------------------------------------------------- }
@@ -1424,6 +1604,23 @@ end;
 { TCastleApplication ----------------------------------------------- }
 
 procedure TCastleApplication.CreateBackend;
+const
+  WinCursorNameFromCastle: array [mcStandard .. High(TMouseCursor)] of LPCTSTR = (
+    IDC_ARROW,  // mcStandard
+    IDC_WAIT,   // mcWait
+    IDC_IBEAM,  // mcText
+    IDC_HAND,   // mcHand
+    IDC_SIZENS, // mcResizeVertical
+    IDC_SIZEWE, // mcResizeHorizontal
+    IDC_SIZENWSE, // no IDC_SIZENW in Windows, // mcResizeTopLeft
+    IDC_SIZENS,   // no IDC_SIZEN  in Windows, // mcResizeTop
+    IDC_SIZENESW, // no IDC_SIZENE in Windows, // mcResizeTopRight
+    IDC_SIZEWE,   // no IDC_SIZEW  in Windows, // mcResizeLeft
+    IDC_SIZEWE,   // no IDC_SIZEE  in Windows, // mcResizeRight
+    IDC_SIZENESW, // no IDC_SIZESW in Windows, // mcResizeBottomLeft
+    IDC_SIZENS,   // no IDC_SIZES  in Windows, // mcResizeBottom
+    IDC_SIZENWSE  // no IDC_SIZESE in Windows, // mcResizeBottomRight
+  );
 var
   WindowClass: TWndClass;
   C: TMouseCursor;
@@ -1432,20 +1629,14 @@ begin
 
   appActive := true;
 
-  { initialize NameForLoadCursor for CursorHandles }
-  CursorHandles[mcStandard].NameForLoadCursor := IDC_ARROW;
-  CursorHandles[mcWait].NameForLoadCursor := IDC_WAIT;
-  CursorHandles[mcText].NameForLoadCursor := IDC_IBEAM;
-  CursorHandles[mcHand].NameForLoadCursor := IDC_HAND;
-
-  { initialize Handle for CursorHandles }
-
-  CursorHandles[mcNone].Handle := 0;
-  CursorHandles[mcForceNone].Handle := 0;
-
-  for C := Low(C) to High(C) do
-    if not (C in [mcDefault, mcNone, mcForceNone, mcCustom]) then
-      CursorHandles[C].Handle := LoadCursor(0, CursorHandles[C].NameForLoadCursor);
+  { Initialize NameForLoadCursor for CursorHandles.
+    We depend on the fact that CursorHandles is initially filled with zero,
+    so NameForLoadCursor is nil for the rest of TMouseCursor values. }
+  for C := Low(WinCursorNameFromCastle) to High(WinCursorNameFromCastle) do
+  begin
+    CursorHandles[C].NameForLoadCursor := WinCursorNameFromCastle[C];
+    CursorHandles[C].Handle := LoadCursor(0, CursorHandles[C].NameForLoadCursor);
+  end;
 
   { create window class (WindowClass) }
 
@@ -1603,6 +1794,15 @@ begin
     ChangeDisplaySettings(nil, 0);
 
   fappActive := value;
+
+  { in this simple case, this can just control Container.Focused }
+  if OpenWindowsCount = 1 then
+  begin
+    OpenWindows[0].FFocused := Value;
+    { right after changing Focused, it's safest to consider mouse position
+      not suitable for mouse look }
+    OpenWindows[0].Container.MouseLookIgnoreNextMotion;
+  end;
 end;
 
 function TCastleApplication.ScreenWidth: integer;
@@ -1619,6 +1819,11 @@ begin
     result := GetSystemMetrics(SM_CYSCREEN);
 end;
 
+function TCastleApplication.ScreenStatusBarScaledHeight: Cardinal;
+begin
+  Result := 0;
+end;
+
 function TCastleApplication.BackendName: string;
 begin
   Result := 'WinAPI';
@@ -1628,6 +1833,15 @@ end;
 
 procedure TCastleWindow.NavigationInfoChanged;
 begin
+end;
+
+{ TWindowContainer ----------------------------------------------------------- }
+
+function TWindowContainer.SettingMousePositionCausesMotion: Boolean;
+begin
+  { Confirmed using window_events example that it is "true" for GTK
+    (press "5", OnMotion is generated). }
+  Result := true;
 end;
 
 {$endif read_implementation}

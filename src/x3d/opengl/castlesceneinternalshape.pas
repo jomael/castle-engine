@@ -21,7 +21,7 @@ unit CastleSceneInternalShape;
 
 interface
 
-uses X3DNodes, X3DFields,
+uses X3DNodes, X3DFields, CastleImages,
   {$ifdef CASTLE_OBJFPC} CastleGL, {$else} GL, GLExt, {$endif}
   CastleRenderer;
 
@@ -34,12 +34,11 @@ type
     { Keeps track if this shape was passed to Renderer.Prepare. }
     PreparedForRenderer: boolean;
 
-    UseBlending: boolean;
-    { Is UseBlending calculated and current. }
-    PreparedUseBlending: boolean;
+    UseAlphaChannel: TAlphaChannel;
+    { Is UseAlphaChannel calculated and current. }
+    PreparedUseAlphaChannel: boolean;
 
-    { Used only by RenderFrustumOctree. }
-    RenderFrustumOctree_Visible: boolean;
+    PassedShapeCulling: Boolean;
 
     { Used only when Attributes.ReallyUseOcclusionQuery.
       OcclusionQueryId is 0 if not initialized yet.
@@ -52,6 +51,11 @@ type
     { For Hierarchical Occlusion Culling. }
     RenderedFrameId: Cardinal;
 
+    { Do not share the cache of this shape with other shapes.
+      Offers tiny optimization when you know that this shape cannot be shared anyway.
+      Never change it after initial render. }
+    DisableSharedCache: Boolean;
+
     procedure Changed(const InactiveOnly: boolean;
       const Changes: TX3DChanges); override;
     procedure PrepareResources;
@@ -62,26 +66,60 @@ type
 
     { Request from parent TCastleScene to call our PrepareResources at next time. }
     procedure SchedulePrepareResources; virtual; abstract;
+
+    function UseBlending: Boolean;
   end;
 
 implementation
 
-uses CastleScene;
+uses CastleScene, CastleVectors;
 
 { TGLShape --------------------------------------------------------------- }
 
 procedure TGLShape.Changed(const InactiveOnly: boolean;
   const Changes: TX3DChanges);
+
+  { Assuming Cache <> nil, try to update the Cache VBOs fast
+    (without the need to recreate them).
+
+    This detects now for changes limited to coordinate/normal,
+    and tries using FastCoordinateNormalUpdate. }
+  function FastCacheUpdate: Boolean;
+  var
+    Coords, Normals: TVector3List;
+  begin
+    Result := false;
+
+    if { We only changed Cooordinate.coord or Normal.vector. }
+       (Changes * [chCoordinate, chVisibleVRML1State] = Changes) and
+       { Shape has coordinates and normals exposed in most common way,
+         by Coordinate and Normal nodes. }
+       (Geometry.CoordField <> nil) and
+       (Geometry.CoordField.Value <> nil) and
+       (Geometry.CoordField.Value is TCoordinateNode) and
+       (Geometry.NormalField <> nil) and
+       (Geometry.NormalField.Value <> nil) and
+       (Geometry.NormalField.Value is TNormalNode) then
+    begin
+      Coords := TCoordinateNode(Geometry.CoordField.Value).FdPoint.Items;
+      Normals := TNormalNode(Geometry.NormalField.Value).FdVector.Items;
+      Result := Cache.FastCoordinateNormalUpdate(Coords, Normals);
+    end;
+  end;
+
 begin
   inherited;
 
-  if Cache <> nil then
+  if (Cache <> nil) and (not FastCacheUpdate) then
   begin
     { Ignore changes that don't affect prepared arrays,
       like transformation, clip planes and everything else that is applied
       by renderer every time, and doesn't affect TGeometryArrays. }
     if Changes * [chCoordinate] <> [] then
-      Cache.FreeArrays([vtCoordinate]) else
+      Cache.FreeArrays([vtCoordinate]);
+    { Note that Changes may contain both chCoordinate and chTextureCoordinate
+      (e.g. in case of batching)
+      in which case both "if" clauses should be entered. }
     if Changes * [chVisibleVRML1State, chGeometryVRML1State,
       chColorNode, chTextureCoordinate, chGeometry, chFontStyle, chWireframe] <> [] then
       Cache.FreeArrays(AllVboTypes);
@@ -89,16 +127,16 @@ begin
 
   if Changes * [chTextureImage, chTextureRendererProperties] <> [] then
   begin
-    Renderer.UnprepareTexture(State.DiffuseAlphaTexture);
+    Renderer.UnprepareTexture(State.MainTexture);
     PreparedForRenderer := false;
-    PreparedUseBlending := false;
+    PreparedUseAlphaChannel := false;
     SchedulePrepareResources;
   end;
 
-  { When Material.transparency changes, recalculate UseBlending. }
-  if chUseBlending in Changes then
+  { When Material.transparency changes, recalculate UseAlphaChannel. }
+  if chAlphaChannel in Changes then
   begin
-    PreparedUseBlending := false;
+    PreparedUseAlphaChannel := false;
     SchedulePrepareResources;
   end;
 end;
@@ -111,12 +149,12 @@ begin
     PreparedForRenderer := true;
   end;
 
-  if not PreparedUseBlending then
+  if not PreparedUseAlphaChannel then
   begin
-    { UseBlending is used by RenderScene to decide is Blending used for given
+    { UseAlphaChannel is used by RenderScene to decide is Blending used for given
       shape. }
-    UseBlending := Blending;
-    PreparedUseBlending := true;
+    UseAlphaChannel := AlphaChannel;
+    PreparedUseAlphaChannel := true;
   end;
 
   {$ifndef OpenGLES}
@@ -130,9 +168,11 @@ begin
 end;
 
 procedure TGLShape.GLContextClose;
+var
+  Pass: TTotalRenderingPass;
 begin
   PreparedForRenderer := false;
-  PreparedUseBlending := false;
+  PreparedUseAlphaChannel := false;
 
   {$ifndef OpenGLES}
   if OcclusionQueryId <> 0 then
@@ -141,6 +181,18 @@ begin
     OcclusionQueryId := 0;
   end;
   {$endif}
+
+  { Free Arrays and Vbo of all shapes. }
+  if Cache <> nil then
+    Renderer.Cache.Shape_DecReference(Self, Cache);
+  for Pass := Low(Pass) to High(Pass) do
+    if ProgramCache[Pass] <> nil then
+      Renderer.Cache.Program_DecReference(ProgramCache[Pass]);
+end;
+
+function TGLShape.UseBlending: Boolean;
+begin
+  Result := UseAlphaChannel = acBlending;
 end;
 
 end.

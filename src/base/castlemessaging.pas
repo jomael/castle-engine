@@ -138,6 +138,13 @@ var
   EventResult, Handled: boolean;
 begin
   Handled := false;
+
+  // The permission-xxx messages do not have to be handled by anything.
+  if (Received.Count > 0) and
+     ( (Received[0] = 'permission-granted') or
+       (Received[0] = 'permission-cancelled') ) then
+    Handled := true;
+
   for I := 0 to Count - 1 do
   begin
     { Use EventResult to workaround FPC 3.1.1 bug (reproducible
@@ -202,7 +209,7 @@ procedure TMessaging.Send(const Strings: array of string);
     { secure in case this is called from state Finish when things are finalized }
     if Self = nil then Exit;
 
-    if CastleLog.Log and Log then
+    if Log then
       WritelnLog('Messaging', 'Pascal code sends a message to service: ' + SReadableForm(Message));
 
     {$ifdef ANDROID}
@@ -231,12 +238,12 @@ procedure TMessaging.Update(Sender: TObject);
   var
     MessageAsList: TCastleStringList;
   begin
-    if CastleLog.Log and Log then
+    if Log then
       WritelnLog('Messaging', 'Pascal code received a message from service: ' + SReadableForm(Message));
     if Message = '' then
       WritelnWarning('Messaging', 'Pascal code received an empty message');
 
-    MessageAsList := SplitString(Message, MessageDelimiter);
+    MessageAsList := CastleStringUtils.SplitString(Message, MessageDelimiter);
     try
       OnReceive.ExecuteAll(MessageAsList);
     finally FreeAndNil(MessageAsList) end;

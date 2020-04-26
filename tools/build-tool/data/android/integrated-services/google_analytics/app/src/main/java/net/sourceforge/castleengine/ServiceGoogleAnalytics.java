@@ -1,4 +1,20 @@
 /* -*- tab-width: 4 -*- */
+
+/*
+  Copyright 2018-2020 Michalis Kamburelis.
+
+  This file is part of "Castle Game Engine".
+
+  "Castle Game Engine" is free software; see the file COPYING.txt,
+  included in this distribution, for details about the copyright.
+
+  "Castle Game Engine" is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  ----------------------------------------------------------------------------
+*/
+
 package net.sourceforge.castleengine;
 
 import android.util.Log;
@@ -14,7 +30,7 @@ import com.google.android.gms.analytics.ecommerce.ProductAction;
  */
 public class ServiceGoogleAnalytics extends ServiceAbstract
 {
-    private static final String TAG = "${NAME}.castleengine.ServiceGoogleAnalytics";
+    private static final String CATEGORY = "ServiceGoogleAnalytics";
     /* To enable debug logging on a device run:
        adb shell setprop log.tag.GAv4 DEBUG
        adb logcat -s GAv4
@@ -43,7 +59,7 @@ public class ServiceGoogleAnalytics extends ServiceAbstract
                 getActivity().getApplication());
             mTracker = analytics.newTracker(mAnalyticsPropertyId);
             mTracker.enableAdvertisingIdCollection(true);
-            Log.i(TAG, "Created Google Analytics tracker with tracking id " + mAnalyticsPropertyId);
+            logInfo(CATEGORY, "Created Google Analytics tracker with tracking id " + mAnalyticsPropertyId);
         }
         return mTracker;
     }
@@ -123,7 +139,7 @@ public class ServiceGoogleAnalytics extends ServiceAbstract
             case 1: strStatus = "fail"; break;
             case 2: strStatus = "complete"; break;
             default:
-                Log.w(TAG, "Invalid analytics-send-progress status " + status);
+                logWarning(CATEGORY, "Invalid analytics-send-progress status " + status);
                 return;
         }
         sendEvent("progress", strStatus, world + "-" + level + "-" + phase, score, 0, "");

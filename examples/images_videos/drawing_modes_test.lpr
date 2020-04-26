@@ -32,7 +32,7 @@ type
   end;
 
 var
-  Window: TCastleWindowCustom;
+  Window: TCastleWindowBase;
 
   { Fills Window background with a simple color.
     Add all the other controls as children of this. }
@@ -79,9 +79,9 @@ begin
     for j := 1 to 4 do
     begin
       try
-        Data[i,j].Image := Data[i,0].Image.MakeCopy;
-        Dest := Data[i,j].Image;
-        Source := Data[0,j].Image;
+        Data[i,j].Image := (Data[i,0].Image as TCastleImage).MakeCopy;
+        Dest := Data[i,j].Image as TCastleImage;
+        Source := Data[0,j].Image as TCastleImage;
         Dest.DrawFrom(Source, 0, 0, 0, 0, Source.Width, Source.Height, DrawMode);
       except
         Data[i,j].Image := NotApplicable;
@@ -162,23 +162,23 @@ begin
 end;
 
 begin
-  Window := TCastleWindowCustom.Create(Application);
+  Window := TCastleWindowBase.Create(Application);
 
   Background := TCastleRectangleControl.Create(Application);
   Background.FullSize := true;
   Background.Color := Black;
   Window.Controls.InsertFront(Background);
 
-  RGBA1 := LoadImage(ApplicationData('1RGBA.png'), [TRGBAlphaImage]) as TRGBAlphaImage;
-  RGBA2 := LoadImage(ApplicationData('2RGBA.png'), [TRGBAlphaImage]) as TRGBAlphaImage;
-  GA1 := LoadImage(ApplicationData('1GA.png'), [TGrayscaleAlphaImage]) as TGrayscaleAlphaImage;
-  GA2 := LoadImage(ApplicationData('2GA.png'), [TGrayscaleAlphaImage]) as TGrayscaleAlphaImage;
-  RGB1 := LoadImage(ApplicationData('1RGB.png'), [TRGBImage]) as TRGBImage;
-  RGB2 := LoadImage(ApplicationData('2RGB.png'), [TRGBImage]) as TRGBImage;
-  G1 := LoadImage(ApplicationData('1G.png'), [TGrayscaleImage]) as TGrayscaleImage;
-  G2 := LoadImage(ApplicationData('2G.png'), [TGrayscaleImage]) as TGrayscaleImage;
-  Legend := LoadImage(ApplicationData('Legend.png'), [TGrayscaleImage]) as TGrayscaleImage;
-  NotApplicable := LoadImage(ApplicationData('na.png'), [TGrayscaleImage]) as TGrayscaleImage;
+  RGBA1 := LoadImage('castle-data:/1RGBA.png', [TRGBAlphaImage]) as TRGBAlphaImage;
+  RGBA2 := LoadImage('castle-data:/2RGBA.png', [TRGBAlphaImage]) as TRGBAlphaImage;
+  GA1 := LoadImage('castle-data:/1GA.png', [TGrayscaleAlphaImage]) as TGrayscaleAlphaImage;
+  GA2 := LoadImage('castle-data:/2GA.png', [TGrayscaleAlphaImage]) as TGrayscaleAlphaImage;
+  RGB1 := LoadImage('castle-data:/1RGB.png', [TRGBImage]) as TRGBImage;
+  RGB2 := LoadImage('castle-data:/2RGB.png', [TRGBImage]) as TRGBImage;
+  G1 := LoadImage('castle-data:/1G.png', [TGrayscaleImage]) as TGrayscaleImage;
+  G2 := LoadImage('castle-data:/2G.png', [TGrayscaleImage]) as TGrayscaleImage;
+  Legend := LoadImage('castle-data:/Legend.png', [TGrayscaleImage]) as TGrayscaleImage;
+  NotApplicable := LoadImage('castle-data:/na.png', [TGrayscaleImage]) as TGrayscaleImage;
 
   Window.Height := ImageSize * 5;
   Window.Width := ImageSize * 5 + 240;

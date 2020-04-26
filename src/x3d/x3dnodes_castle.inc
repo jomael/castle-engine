@@ -14,11 +14,11 @@
 }
 
 { Nodes that are defined specifically by Castle Game Engine.
-  See [http://castle-engine.sourceforge.net/x3d_extensions.php]. } { }
+  See [https://castle-engine.io/x3d_extensions.php]. } { }
 
 {$ifdef read_interface}
   { Headlight configuration, allows to customize headlight look and shape.
-    See http://castle-engine.sourceforge.net/x3d_implementation_navigation_extensions.php#section_ext_headlight . }
+    See https://castle-engine.io/x3d_implementation_navigation_extensions.php#section_ext_headlight . }
   TKambiHeadLightNode = class(TAbstractChildNode)
   public
     procedure CreateNode; override;
@@ -45,8 +45,6 @@
     strict private FFdSpotDropOffRate: TSFFloat;
     public property FdSpotDropOffRate: TSFFloat read FFdSpotDropOffRate;
 
-    class function URNMatching(const URN: string): boolean; override;
-
     {$I auto_generated_node_helpers/x3dnodes_kambiheadlight.inc}
   end;
 
@@ -63,13 +61,11 @@
     strict private FFdDepth: TSFFloat;
     public property FdDepth: TSFFloat read FFdDepth;
 
-    class function URNMatching(const URN: string): boolean; override;
-
     {$I auto_generated_node_helpers/x3dnodes_text3d.inc}
   end;
 
   { Customize blending (partial transparency) mode.
-    See http://castle-engine.sourceforge.net/x3d_extensions.php#section_ext_blending .
+    See https://castle-engine.io/x3d_extensions.php#section_ext_blending .
 
     This is an extension, not present in standard X3D.
     It is compatible with modelled after, and compatible with,
@@ -80,7 +76,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdSrcFactor: TSFString;
     public property FdSrcFactor: TSFString read FFdSrcFactor;
@@ -105,13 +100,11 @@
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
 
-    class function URNMatching(const URN: string): boolean; override;
-
     {$I auto_generated_node_helpers/x3dnodes_kambiappearance.inc}
   end;
 
   { Embed a scene from another file, and replace some of it's nodes.
-    See http://castle-engine.sourceforge.net/x3d_extensions.php#section_ext_kambi_inline . }
+    See https://castle-engine.io/x3d_extensions.php#section_ext_kambi_inline . }
   TKambiInlineNode = class(TInlineNode)
   strict private
     { This is internal only for DoReplaceNodes, initialized in AfterLoadInlined. }
@@ -122,7 +115,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdReplaceNames: TMFString;
     public property FdReplaceNames: TMFString read FFdReplaceNames;
@@ -140,12 +132,11 @@
     opStaticCollisions);
 
   { Navigation information with some Castle Game Engine extensions.
-    See http://castle-engine.sourceforge.net/x3d_implementation_navigation_extensions.php . }
+    See https://castle-engine.io/x3d_implementation_navigation_extensions.php . }
   TKambiNavigationInfoNode = class(TNavigationInfoNode)
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdTimeOriginAtLoad: TSFBool;
     public property FdTimeOriginAtLoad: TSFBool read FFdTimeOriginAtLoad;
@@ -183,7 +174,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdMaxDepth: TSFInt32;
     public property FdMaxDepth: TSFInt32 read FFdMaxDepth;
@@ -197,11 +187,17 @@
     {$I auto_generated_node_helpers/x3dnodes_kambioctreeproperties.inc}
   end;
 
+  TShadowMapCompareMode = (smCompareRLEqual, smCompareRGEqual, smNone);
+
   { Generate texture by rendering a depth (shadow) map.
-    See http://castle-engine.sourceforge.net/x3d_extensions_shadow_maps.php }
-  TGeneratedShadowMapNode = class(TAbstractTextureNode)
+    See https://castle-engine.io/x3d_extensions_shadow_maps.php }
+  TGeneratedShadowMapNode = class(TAbstractSingleTextureNode)
   strict private
     FGeneratedTextureHandler: TGeneratedTextureHandler;
+    function GetCompareMode: TShadowMapCompareMode;
+    procedure SetCompareMode(const Value: TShadowMapCompareMode);
+    function GetUpdate: TTextureUpdate;
+    procedure SetUpdate(const Value: TTextureUpdate);
   public
     const
       DefaultSize = 128;
@@ -212,13 +208,20 @@
     destructor Destroy; override;
 
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     property GeneratedTextureHandler: TGeneratedTextureHandler
       read FGeneratedTextureHandler;
 
     strict private FFdUpdate: TSFTextureUpdate;
     public property FdUpdate: TSFTextureUpdate read FFdUpdate;
+
+    { When to update the texture.
+      See the specification of the "update" field of the GeneratedShadowMap
+      on https://castle-engine.io/x3d_extensions_shadow_maps.php .
+
+      You should usually use this property instead of accessing @link(FdUpdate),
+      it will change FdUpdate.Value and call FdUpdate.Changed. }
+    public property Update: TTextureUpdate read GetUpdate write SetUpdate;
 
     strict private FFdSize: TSFInt32;
     public property FdSize: TSFInt32 read FFdSize;
@@ -232,20 +235,20 @@
     strict private FFdBias: TSFFloat;
     public property FdBias: TSFFloat read FFdBias;
 
-    strict private FFdCompareMode: TSFstring;
-    public property FdCompareMode: TSFString read FFdCompareMode;
+    strict private FFdCompareMode: TSFStringEnum;
+    public property FdCompareMode: TSFStringEnum read FFdCompareMode;
+    property CompareMode: TShadowMapCompareMode read GetCompareMode write SetCompareMode;
 
     {$I auto_generated_node_helpers/x3dnodes_generatedshadowmap.inc}
   end;
 
   { Generate texture coordinates by projection.
-    See http://castle-engine.sourceforge.net/x3d_extensions_shadow_maps.php }
+    See https://castle-engine.io/x3d_extensions_shadow_maps.php }
   TProjectedTextureCoordinateNode = class(TAbstractTextureCoordinateNode)
   public
     procedure CreateNode; override;
 
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdProjector: TSFNode;
     public property FdProjector: TSFNode read FFdProjector;
@@ -254,7 +257,7 @@
   end;
 
   { Screen-space shader effect.
-    See http://castle-engine.sourceforge.net/x3d_extensions_screen_effects.php . }
+    See https://castle-engine.io/x3d_extensions_screen_effects.php . }
   TScreenEffectNode = class(TAbstractChildNode)
   strict private
     FShader: TObject;
@@ -266,7 +269,6 @@
     procedure CreateNode; override;
     destructor Destroy; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdShaders: TMFNodeShaders;
     public property FdShaders: TMFNodeShaders read FFdShaders;
@@ -277,7 +279,7 @@
     strict private FFdEnabled: TSFBool;
     public property FdEnabled: TSFBool read FFdEnabled;
 
-    { Shader and ShaderLoaded properties are internally manager by the renderer.
+    { Shader and ShaderLoaded properties are internally managed by the renderer.
       Right now, this means TCastleScene.
       Always when ShaderLoaded = @false then Shader is @nil.
       When ShaderLoaded = @true, the Shader may be non-nil (if was enabled
@@ -307,11 +309,10 @@
     (regardless if we're on primitives or not). }
 
   { Generated texture coordinates for multi-texturing.
-    See [http://castle-engine.sourceforge.net/x3d_extensions.php#section_ext_tex_coord]. }
+    See [https://castle-engine.io/x3d_extensions.php#section_ext_tex_coord]. }
   TMultiGeneratedTextureCoordinateNode = class(TMultiTextureCoordinateNode)
   public
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     {$I auto_generated_node_helpers/x3dnodes_multigeneratedtexturecoordinate.inc}
   end;
@@ -319,15 +320,16 @@
   TEffectPartNode = class;
 
   { Shader effect, that can be composed with other effect or standard rendering.
-    See http://castle-engine.sourceforge.net/compositing_shaders.php . }
+    See https://castle-engine.io/compositing_shaders.php . }
   TEffectNode = class(TAbstractChildNode)
   strict private
     function GetLanguage: TShaderLanguage;
     procedure SetLanguage(const Value: TShaderLanguage);
+  protected
+    procedure GroupBeforeTraverse(const State: TX3DGraphTraverseState; var WasPointingDeviceSensor: Boolean); override;
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdLanguage: TSFStringEnum;
     public property FdLanguage: TSFStringEnum read FFdLanguage;
@@ -343,7 +345,7 @@
   end;
 
   { Part of a shader effect, used with @link(TEffectNode).
-    See http://castle-engine.sourceforge.net/compositing_shaders.php . }
+    See https://castle-engine.io/compositing_shaders.php . }
   TEffectPartNode = class(TAbstractNode, IAbstractUrlObject)
   strict private
     ContentsCached: boolean;
@@ -357,7 +359,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdType: TSFStringEnum;
     public property FdType: TSFStringEnum read FFdType;
@@ -372,7 +373,7 @@
 
       Getting this automatically loads the shader code pointed by the URL field
       of this node. The shader code may be specified in an external file,
-      or inline using "data URI", see https://castle-engine.sourceforge.io/manual_network.php .
+      or inline using "data URI", see https://castle-engine.io/manual_network.php .
       The shader code may also be specified using the XML "CDATA" in X3D XML encoding.
       Returns '' of no valid URLs are present
       (loading errors are reported to WritelnWarning).
@@ -384,17 +385,46 @@
   end;
 
   { Procedural texture defined by shaders.
-    See http://castle-engine.sourceforge.net/compositing_shaders.php . }
-  TShaderTextureNode = class(TAbstractTextureNode)
+    See https://castle-engine.io/compositing_shaders.php . }
+  TShaderTextureNode = class(TAbstractSingleTextureNode)
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdDefaultTexCoord: TSFString;
     public property FdDefaultTexCoord: TSFString read FFdDefaultTexCoord;
 
     {$I auto_generated_node_helpers/x3dnodes_shadertexture.inc}
+  end;
+
+  { Viewpoint for making reflections on flat objects.
+    See https://castle-engine.io/x3d_extensions_mirror_plane.php . }
+  TViewpointMirrorNode = class(TX3DNode)
+  public
+    {$I auto_generated_node_helpers/x3dnodes_viewpointmirror.inc}
+  end;
+
+  { Interpolate (animate) a 2D orientation,
+    during which angle changes but axis remains constant. }
+  TOrientationInterpolator2DNode = class(TAbstractInterpolatorNode)
+  strict private
+    procedure EventSet_FractionReceive(Event: TX3DEvent; Value: TX3DField;
+      const Time: TX3DTime);
+  public
+    procedure CreateNode; override;
+    class function ClassX3DType: string; override;
+
+    strict private FFdKeyValue: TMFFloat;
+    public property FdKeyValue: TMFFloat read FFdKeyValue;
+
+    strict private FFdAxis: TSFVec3f;
+    public property FdAxis: TSFVec3f read FFdAxis;
+
+    { Event out } { }
+    strict private FEventValue_changed: TSFRotationEvent;
+    public property EventValue_changed: TSFRotationEvent read FEventValue_changed;
+
+    {$I auto_generated_node_helpers/x3dnodes_orientationinterpolator2d.inc}
   end;
 
 {$endif read_interface}
@@ -442,22 +472,9 @@ begin
   AddField(FFdSpotDropOffRate);
 end;
 
-class function TKambiHeadLightNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    URNMatchingCastle(URN, ClassX3DType);
-end;
-
 class function TText3DNode.ClassX3DType: string;
 begin
   Result := 'Text3D';
-end;
-
-class function TText3DNode.URNMatching(const URN: string): boolean;
-begin
-  Result :=
-    { do not call (inherited URNMatching(URN)), since we don't match Text node rules }
-    URNMatchingCastle(URN, ClassX3DType);
 end;
 
 procedure TText3DNode.CreateNode;
@@ -474,12 +491,6 @@ end;
 class function TBlendModeNode.ClassX3DType: string;
 begin
   Result := 'BlendMode';
-end;
-
-class function TBlendModeNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    URNMatchingCastle(URN, ClassX3DType);
 end;
 
 procedure TBlendModeNode.CreateNode;
@@ -510,13 +521,6 @@ begin
   Result := 'KambiAppearance';
 end;
 
-class function TKambiAppearanceNode.URNMatching(const URN: string): boolean;
-begin
-  { Don't call "inherited URNMatching(URN)", since we don't want to
-    "intercept" URNs that should indicate standard Appearance node. }
-  Result := URNMatchingCastle(URN, ClassX3DType);
-end;
-
 procedure TKambiAppearanceNode.CreateNode;
 begin
   inherited;
@@ -536,13 +540,6 @@ end;
 class function TKambiInlineNode.ClassX3DType: string;
 begin
   Result := 'KambiInline';
-end;
-
-class function TKambiInlineNode.URNMatching(const URN: string): boolean;
-begin
-  { Don't call "inherited URNMatching(URN)", since we don't want to
-    "intercept" URNs that should indicate standard Inline node. }
-  Result := URNMatchingCastle(URN, ClassX3DType);
 end;
 
 procedure TKambiInlineNode.AfterLoadInlined;
@@ -607,11 +604,11 @@ begin
   FFdOctreeStaticCollisions.AddAlternativeName('octreeCollidableTriangles', 0);
   AddField(FFdOctreeStaticCollisions);
 
-  FFdHeadBobbing := TSFFloat.Create(Self, true, 'headBobbing', TWalkCamera.DefaultHeadBobbing, true);
+  FFdHeadBobbing := TSFFloat.Create(Self, true, 'headBobbing', TCastleWalkNavigation.DefaultHeadBobbing, true);
    FdHeadBobbing.ChangesAlways := [chNavigationInfo];
   AddField(FFdHeadBobbing);
 
-  FFdHeadBobbingTime := TSFFloat.Create(Self, true, 'headBobbingTime', TWalkCamera.DefaultHeadBobbingTime, true);
+  FFdHeadBobbingTime := TSFFloat.Create(Self, true, 'headBobbingTime', TCastleWalkNavigation.DefaultHeadBobbingTime, true);
    FdHeadBobbingTime.ChangesAlways := [chNavigationInfo];
   AddField(FdHeadBobbingTime);
 
@@ -624,11 +621,6 @@ begin
   Result := 'KambiNavigationInfo';
 end;
 
-class function TKambiNavigationInfoNode.URNMatching(const URN: string): boolean;
-begin
-  Result := URNMatchingCastle(URN, ClassX3DType);
-end;
-
 function TKambiNavigationInfoNode.OctreeProperties(
   OP: TSceneOctreeProperties): TKambiOctreePropertiesNode;
 var
@@ -639,7 +631,9 @@ begin
     opDynamicCollisions: N := FdOctreeDynamicCollisions  .Value;
     opVisibleTriangles : N := FdOctreeVisibleTriangles   .Value;
     opStaticCollisions : N := FdOctreeStaticCollisions.Value;
+    {$ifndef COMPILER_CASE_ANALYSIS}
     else raise EInternalError.Create('TKambiOctreePropertiesNode.OctreeProperties');
+    {$endif}
   end;
   if N is TKambiOctreePropertiesNode then
     Result := TKambiOctreePropertiesNode(N) else
@@ -664,11 +658,6 @@ begin
   Result := 'KambiOctreeProperties';
 end;
 
-class function TKambiOctreePropertiesNode.URNMatching(const URN: string): boolean;
-begin
-  Result := URNMatchingCastle(URN, ClassX3DType);
-end;
-
 procedure TKambiOctreePropertiesNode.OverrideLimits(var Limits: TOctreeLimits);
 begin
   if FdMaxDepth.Value >= 0 then
@@ -683,6 +672,9 @@ begin
 end;
 
 procedure TGeneratedShadowMapNode.CreateNode;
+const
+  CompareModeNames: array [TShadowMapCompareMode] of string =
+  ('COMPARE_R_LEQUAL', 'COMPARE_R_GEQUAL', 'NONE');
 begin
   inherited;
 
@@ -713,7 +705,7 @@ begin
    FdBias.ChangesAlways := [chGeneratedTextureUpdateNeeded];
   AddField(FFdBias);
 
-  FFdCompareMode := TSFString.Create(Self, true, 'compareMode', 'COMPARE_R_LEQUAL');
+  FFdCompareMode := TSFStringEnum.Create(Self, true, 'compareMode', CompareModeNames, Ord(smCompareRLEqual));
    FdCompareMode.ChangesAlways := [chTextureRendererProperties];
   AddField(FFdCompareMode);
 
@@ -732,9 +724,24 @@ begin
   Result := 'GeneratedShadowMap';
 end;
 
-class function TGeneratedShadowMapNode.URNMatching(const URN: string): boolean;
+function TGeneratedShadowMapNode.GetCompareMode: TShadowMapCompareMode;
 begin
-  Result := URNMatchingCastle(URN, ClassX3DType);
+  Result := TShadowMapCompareMode(FdCompareMode.EnumValue);
+end;
+
+procedure TGeneratedShadowMapNode.SetCompareMode(const Value: TShadowMapCompareMode);
+begin
+  FdCompareMode.SendEnumValue(Ord(Value));
+end;
+
+function TGeneratedShadowMapNode.GetUpdate: TTextureUpdate;
+begin
+  Result := FdUpdate.Value;
+end;
+
+procedure TGeneratedShadowMapNode.SetUpdate(const Value: TTextureUpdate);
+begin
+  FdUpdate.Send(Value);
 end;
 
 procedure TProjectedTextureCoordinateNode.CreateNode;
@@ -759,11 +766,6 @@ begin
   Result := 'ProjectedTextureCoordinate';
 end;
 
-class function TProjectedTextureCoordinateNode.URNMatching(const URN: string): boolean;
-begin
-  Result := URNMatchingCastle(URN, ClassX3DType);
-end;
-
 procedure TScreenEffectNode.CreateNode;
 begin
   inherited;
@@ -778,7 +780,7 @@ begin
 
   FFdNeedsDepth := TSFBool.Create(Self, true, 'needsDepth', false);
    { no change needed, TCastleScene recalculates NeedsDepth every time
-     when ScreenEffectsNeedDepth is called by scene manager. }
+     when ScreenEffectsNeedDepth is called by TCastleScreenEffects. }
    FdNeedsDepth.ChangesAlways := [];
   AddField(FFdNeedsDepth);
 
@@ -796,11 +798,6 @@ begin
   Result := 'ScreenEffect';
 end;
 
-class function TScreenEffectNode.URNMatching(const URN: string): boolean;
-begin
-  Result := URNMatchingCastle(URN, ClassX3DType);
-end;
-
 function TScreenEffectNode.DirectEnumerateActive(Func: TEnumerateChildrenFunction): Pointer;
 begin
   Result := inherited;
@@ -815,10 +812,7 @@ begin
   Result := 'MultiGeneratedTextureCoordinate';
 end;
 
-class function TMultiGeneratedTextureCoordinateNode.URNMatching(const URN: string): boolean;
-begin
-  Result := URNMatchingCastle(URN, ClassX3DType);
-end;
+{ TEffectNode ---------------------------------------------------------------- }
 
 procedure TEffectNode.CreateNode;
 begin
@@ -839,14 +833,17 @@ begin
   HasInterfaceDeclarations := AllAccessTypes;
 end;
 
+procedure TEffectNode.GroupBeforeTraverse(const State: TX3DGraphTraverseState; var WasPointingDeviceSensor: Boolean);
+begin
+  inherited;
+  if State.Effects = nil then
+    State.Effects := TX3DNodeList.Create(false);
+  State.Effects.Add(Self);
+end;
+
 class function TEffectNode.ClassX3DType: string;
 begin
   Result := 'Effect';
-end;
-
-class function TEffectNode.URNMatching(const URN: string): boolean;
-begin
-  Result := URNMatchingCastle(URN, ClassX3DType);
 end;
 
 function TEffectNode.GetLanguage: TShaderLanguage;
@@ -878,11 +875,6 @@ end;
 class function TEffectPartNode.ClassX3DType: string;
 begin
   Result := 'EffectPart';
-end;
-
-class function TEffectPartNode.URNMatching(const URN: string): boolean;
-begin
-  Result := URNMatchingCastle(URN, ClassX3DType);
 end;
 
 function TEffectPartNode.GetContents: string;
@@ -935,9 +927,68 @@ begin
   Result := 'ShaderTexture';
 end;
 
-class function TShaderTextureNode.URNMatching(const URN: string): boolean;
+{ TOrientationInterpolator2DNode ---------------------------------- }
+
+procedure TOrientationInterpolator2DNode.CreateNode;
 begin
-  Result := URNMatchingCastle(URN, ClassX3DType);
+  inherited;
+
+  FFdKeyValue := TMFFloat.Create(Self, {$ifdef CASTLE_SLIM_NODES} false {$else} true {$endif}, 'keyValue', []);
+  AddField(FFdKeyValue);
+
+  FFdAxis := TSFVec3f.Create(Self, {$ifdef CASTLE_SLIM_NODES} false {$else} true {$endif}, 'axis', Vector3(0, 0, 1));
+  AddField(FFdAxis);
+
+  FEventValue_changed := TSFRotationEvent.Create(Self, 'value_changed', false);
+  AddEvent(FEventValue_changed);
+
+  DefaultContainerField := 'children';
+
+  EventSet_Fraction.AddNotification(
+    {$ifdef CASTLE_OBJFPC}@{$endif} EventSet_FractionReceive);
+end;
+
+class function TOrientationInterpolator2DNode.ClassX3DType: string;
+begin
+  Result := 'OrientationInterpolator2D';
+end;
+
+procedure TOrientationInterpolator2DNode.EventSet_FractionReceive(
+  Event: TX3DEvent; Value: TX3DField; const Time: TX3DTime);
+
+  function KeyValue(Index: Integer): Single;
+  begin
+    if Index < FdKeyValue.Items.Count then
+      Result := FdKeyValue.Items.List^[Index]
+    else
+      Result := 0;
+  end;
+
+var
+  T: Single;
+  OutputValueAngle: Single;
+  KeyCount, Range: Integer;
+begin
+  if not EventValue_Changed.SendNeeded then Exit;
+
+  KeyCount := FdKey.Items.Count;
+  if KeyCount = 0 then
+  begin
+    // Interpolator nodes containing no keys in the key field
+    // shall not produce any events.
+    Exit;
+  end else
+  begin
+    Range := KeyRange((Value as TSFFloat).Value, T);
+    if Range = 0 then
+      OutputValueAngle := KeyValue(0)
+    else
+    if Range = KeyCount then
+      OutputValueAngle := KeyValue(KeyCount - 1)
+    else
+      OutputValueAngle := AngleLerp(T, KeyValue(Range - 1), KeyValue(Range));
+  end;
+  EventValue_Changed.Send(Vector4(FdAxis.Value, OutputValueAngle), Time, Value.InternalPartialSend);
 end;
 
 procedure RegisterKambiNodes;
@@ -956,7 +1007,9 @@ begin
     TMultiGeneratedTextureCoordinateNode,
     TEffectNode,
     TEffectPartNode,
-    TShaderTextureNode
+    TShaderTextureNode,
+    TViewpointMirrorNode,
+    TOrientationInterpolator2DNode
   ]);
 end;
 

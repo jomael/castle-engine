@@ -1,21 +1,14 @@
 {
   Copyright 2007-2018 Michalis Kamburelis.
 
-  This file is part of "The Rift".
+  This file is part of "Castle Game Engine".
 
-  "The Rift" is free software; you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation; either version 2 of the License, or
-  (at your option) any later version.
+  "Castle Game Engine" is free software; see the file COPYING.txt,
+  included in this distribution, for details about the copyright.
 
-  "The Rift" is distributed in the hope that it will be useful,
+  "Castle Game Engine" is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with "The Rift"; if not, write to the Free Software
-  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
   ----------------------------------------------------------------------------
 }
@@ -36,8 +29,8 @@ type
     type
       TIntroPart = class
         CorrodeDuration: TFloatTime;
-        Image: TGLImage;
-        ImageCorroded: TGLImage;
+        Image: TDrawableImage;
+        ImageCorroded: TDrawableImage;
         destructor Destroy; override;
       end;
       TIntroPartList = specialize TObjectList<TIntroPart>;
@@ -104,10 +97,10 @@ constructor TStateIntro.Create(AOwner: TComponent);
 
         { calculate Part.Image and ImageCorroded }
         ImageName := Element.AttributeString('image');
-        Part.Image := TGLImage.Create(
-          ApplicationData('images/' + ImageName + '.png'), [TRGBImage]);
-        Part.ImageCorroded := TGLImage.Create(
-          ApplicationData('images/' + ImageName + '_corroded.png'), [TRGBImage]);
+        Part.Image := TDrawableImage.Create(
+          'castle-data:/images/' + ImageName + '.png', [TRGBImage]);
+        Part.ImageCorroded := TDrawableImage.Create(
+          'castle-data:/images/' + ImageName + '_corroded.png', [TRGBImage]);
       end;
     finally FreeAndNil(I) end;
 

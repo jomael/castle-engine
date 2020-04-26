@@ -15,7 +15,7 @@
 
 { Define and display a 3D object with custom shaders in Object Pascal code.
   In CGE, you can build and edit X3D scene graph using Object Pascal,
-  see https://castle-engine.sourceforge.io/manual_scene.php#section_building_and_editing .
+  see https://castle-engine.io/manual_scene.php#section_building_and_editing .
 
   See also other X3D-build code, e.g. build_3d_object_by_code.lpr, build_3d_tunnel.lpr ,
   ExportToX3D in ../terrain/terrain.lpr (uses shaders too)...
@@ -23,7 +23,7 @@
 
 uses SysUtils,
   CastleLog, CastleRendererBaseTypes, CastleVectors, X3DNodes, CastleWindow,
-  CastleSceneCore, CastleScene, CastleUtils;
+  CastleSceneCore, CastleScene, CastleUtils, CastleViewport;
 
 function BuildX3D: TX3DRootNode;
 var
@@ -40,7 +40,7 @@ begin
   { Note: if you're looking instead at a way to enhance the default shaders
     (not replace them), use the Effect and EffectPart
     nodes instead of ComposedShader and ShaderPart.
-    See https://castle-engine.sourceforge.io/compositing_shaders.php . }
+    See https://castle-engine.io/compositing_shaders.php . }
 
   VertexShader := TShaderPartNode.Create;
   VertexShader.ShaderType := stVertex;
@@ -78,20 +78,27 @@ begin
 end;
 
 var
-  Window: TCastleWindow;
+  Window: TCastleWindowBase;
+  Viewport: TCastleViewport;
   Scene: TCastleScene;
 begin
   { the log will contain e.g. information if the GLSL failed to compile }
   InitializeLog;
 
+  Window := TCastleWindowBase.Create(Application);
+
+  Viewport := TCastleViewport.Create(Application);
+  Viewport.FullSize := true;
+  Viewport.AutoCamera := true;
+  Viewport.AutoNavigation := true;
+  Window.Controls.InsertFront(Viewport);
+
   Scene := TCastleScene.Create(Application);
   Scene.Load(BuildX3D, true);
   Scene.Spatial := [ssRendering, ssDynamicCollisions];
   Scene.ProcessEvents := true;
-
-  Window := TCastleWindow.Create(Application);
-  Window.SceneManager.Items.Add(Scene);
-  Window.SceneManager.MainScene := Scene;
+  Viewport.Items.Add(Scene);
+  Viewport.Items.MainScene := Scene;
 
   Window.Open;
   Application.Run;

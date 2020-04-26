@@ -3,17 +3,22 @@ package net.sourceforge.castleengine;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.NativeActivity;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
+import android.content.pm.PackageManager;
+
+import androidx.core.app.ActivityCompat;
 
 public class MainActivity extends NativeActivity
 {
-    private static final String TAG = "${NAME}.castleengine.MainActivity";
+    private static final String CATEGORY = "MainActivity";
 
     private ServiceMessaging messaging;
     private List<ServiceAbstract> services = new ArrayList<ServiceAbstract>();
@@ -21,7 +26,7 @@ public class MainActivity extends NativeActivity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        Log.i(TAG, "Custom castleengine.MainActivity created");
+        ServiceAbstract.logInfo(CATEGORY, "Custom castleengine.MainActivity created");
 
         services.add(messaging = new ServiceMessaging(this));
         services.add(new ServiceMiscellaneous(this));
@@ -31,6 +36,8 @@ public class MainActivity extends NativeActivity
         for (ServiceAbstract service : services) {
             service.onCreate();
         }
+
+       jniLanguage(Locale.getDefault().toString());
     }
 
     @Override
@@ -52,7 +59,7 @@ public class MainActivity extends NativeActivity
     @Override
     protected void onStart() {
         super.onStart();
-        Log.i(TAG, "onStart");
+        ServiceAbstract.logInfo(CATEGORY, "onStart");
         for (ServiceAbstract service : services) {
             service.onStart();
         }
@@ -61,7 +68,7 @@ public class MainActivity extends NativeActivity
     @Override
     protected void onStop() {
         super.onStop();
-        Log.i(TAG, "onStop");
+        ServiceAbstract.logInfo(CATEGORY, "onStop");
         for (ServiceAbstract service : services) {
             service.onStop();
         }
@@ -79,7 +86,7 @@ public class MainActivity extends NativeActivity
     @Override
     protected void onResume() {
         super.onResume();
-        Log.i(TAG, "onResume");
+        ServiceAbstract.logInfo(CATEGORY, "onResume");
         for (ServiceAbstract service : services) {
             service.onResume();
         }
@@ -88,7 +95,7 @@ public class MainActivity extends NativeActivity
     @Override
     protected void onPause() {
         super.onPause();
-        Log.i(TAG, "onPause");
+        ServiceAbstract.logInfo(CATEGORY, "onPause");
         for (ServiceAbstract service : services) {
             service.onPause();
         }
@@ -97,7 +104,7 @@ public class MainActivity extends NativeActivity
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        Log.i(TAG, "onNewIntent");
+        ServiceAbstract.logInfo(CATEGORY, "onNewIntent");
         for (ServiceAbstract service : services) {
             service.onNewIntent(intent);
         }
@@ -106,7 +113,7 @@ public class MainActivity extends NativeActivity
     @Override
     public void onBackPressed()
     {
-        Log.i(TAG, "onBackPressed");
+        ServiceAbstract.logInfo(CATEGORY, "onBackPressed");
         for (ServiceAbstract service : services) {
             if (service.onBackPressed()) {
                 return;
@@ -136,6 +143,12 @@ public class MainActivity extends NativeActivity
         boolean result = false;
         boolean r;
 
+        // Check messages handled directly in this class
+        if (parts.length == 2 && parts[0].equals("permission-request")) {
+            requestPermission(parts[1]);
+            result = true;
+        }
+
         // Call messageReceived of all services.
         //
         // Do not stop on 1st success, our analytics services depend on it.
@@ -154,7 +167,7 @@ public class MainActivity extends NativeActivity
 
     public void onPurchase(AvailableProduct product, String purchaseData, String signature)
     {
-        Log.i(TAG, "purchase " + product.id);
+        ServiceAbstract.logInfo(CATEGORY, "purchase " + product.id);
         for (ServiceAbstract service : services) {
             service.onPurchase(product, purchaseData, signature);
         }
@@ -163,14 +176,15 @@ public class MainActivity extends NativeActivity
     /* JNI ------------------------------------------------------------------- */
 
     public native String jniMessage(String javaToNative);
+    public native void jniLanguage(String javaToNative);
 
     public static final void safeLoadLibrary(String libName)
     {
         try {
             System.loadLibrary(libName);
-            Log.i(TAG, "JNI: Successfully loaded lib" + libName + ".so");
+            ServiceAbstract.logInfo(CATEGORY, "JNI: Successfully loaded lib" + libName + ".so");
         } catch(UnsatisfiedLinkError e) {
-            Log.e(TAG, "JNI: Could not load lib" + libName + ".so, exception UnsatisfiedLinkError: " + e.getMessage());
+            ServiceAbstract.logError(CATEGORY, "JNI: Could not load lib" + libName + ".so, exception UnsatisfiedLinkError: " + e.getMessage());
         }
     }
 
@@ -182,5 +196,53 @@ public class MainActivity extends NativeActivity
         ${ANDROID_ACTIVITY_LOAD_LIBRARIES}
 
         safeLoadLibrary("${ANDROID_LIBRARY_NAME}");
+    }
+
+    private static final int MY_PERMISSIONS_REQUEST = 1;
+
+    /* Requires Android permission name.
+
+       @param permission Can be one of the Manifest.permission constants,
+         like Manifest.permission.WRITE_EXTERNAL_STORAGE,
+         see https://developer.android.com/reference/android/Manifest.permission.html .
+         You can also just type a string like "android.permission.WRITE_EXTERNAL_STORAGE"
+         (this is useful when permission is not specified in Java code,
+         so it's easier to just provide a string value of it).
+
+       See
+       https://developer.android.com/training/permissions/requesting#java
+       https://developer.android.com/training/permissions/usage-notes
+
+       In response, will always (but maybe asynchronously) answer with
+       "permission-granted" or "permission-cancelled".
+    */
+    public void requestPermission(String permission)
+    {
+        if (ActivityCompat.checkSelfPermission(this, permission)
+          != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                new String[]{permission},
+                MY_PERMISSIONS_REQUEST);
+        } else {
+            messageSend(new String[]{"permission-granted", permission});
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode,
+        String[] permissions, int[] grantResults)
+    {
+        switch (requestCode) {
+            case MY_PERMISSIONS_REQUEST: {
+                // If request is cancelled, the result arrays are empty.
+                if (grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    messageSend(new String[]{"permission-granted", permissions[0]});
+                } else {
+                    messageSend(new String[]{"permission-cancelled", permissions[0]});
+                }
+                return;
+            }
+        }
     }
 }

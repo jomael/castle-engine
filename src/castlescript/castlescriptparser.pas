@@ -15,7 +15,7 @@
 
 (*
   @abstract(Parser for CastleScript language, see
-  [http://castle-engine.sourceforge.net/castle_script.php].)
+  [https://castle-engine.io/castle_script.php].)
 
   Can parse whole program in CastleScript language, is also prepared
   to parse only a single expression (usefull for cases when I need
@@ -50,7 +50,7 @@ type
 
   The end result is that this is perfect for describing things
   like function expressions, ideal e.g. for
-  [http://castle-engine.sourceforge.net/glplotter_and_gen_function.php].
+  [https://castle-engine.io/glplotter_and_gen_function.php].
 
   @param(Variables contains a list of named values you want
     to allow in this expression.
@@ -129,7 +129,7 @@ function ParseProgram(const S: string;
 
 implementation
 
-uses SysUtils, CastleScriptCoreFunctions;
+uses SysUtils, CastleScriptCoreFunctions, CastleUtils;
 
 function Expression(
   const Lexer: TCasScriptLexer;
@@ -493,15 +493,25 @@ begin
     Result := nil;
     try
       try
-        Result := NonAssignmentExpression(Lexer, nil { no Environment }, false, Variables);
-        Lexer.CheckTokenIs(tokEnd);
+        try
+          Result := NonAssignmentExpression(Lexer, nil { no Environment }, false, Variables);
+          Lexer.CheckTokenIs(tokEnd);
+        except
+          { Change ECasScriptFunctionArgumentsError (raised when
+            creating functions) to ECasScriptParserError.
+            This allows the caller to catch only ECasScriptSyntaxError,
+            and adds position information to error message. }
+          on E: ECasScriptFunctionArgumentsError do
+            raise ECasScriptParserError.Create(Lexer, E.Message);
+        end;
       except
-        { Change ECasScriptFunctionArgumentsError (raised when
-          creating functions) to ECasScriptParserError.
-          This allows the caller to catch only ECasScriptSyntaxError,
-          and adds position information to error message. }
-        on E: ECasScriptFunctionArgumentsError do
-          raise ECasScriptParserError.Create(Lexer, E.Message);
+        on E: ECasScriptError do
+        begin
+          if ScriptVerboseMessages then
+            E.Message := E.Message + NL +
+              'The error above is inside expression:' + NL + S;
+          raise;
+        end;
       end;
     except Result.FreeByParentExpression; raise end;
   finally Lexer.Free end;

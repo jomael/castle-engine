@@ -155,6 +155,7 @@ var
   CoordArray: array of TVector3;
   TexCoordArray: array of TVector2;
   R1, R2, R3, R4: TX3DRoute;
+  Material: TUnlitMaterialNode;
 begin
   for List in Animations.Values do
   begin
@@ -171,15 +172,13 @@ begin
   end;
   Root := TX3DRootNode.Create;
   Root.Meta['generator'] :=
-      'sprite-sheet-to-x3d, http://castle-engine.sourceforge.net';
+      'sprite-sheet-to-x3d, https://castle-engine.io';
   Root.Meta['source'] := SSName + SSExt;
   try
     Shape:= TShapeNode.Create;
-    Shape.Material := TMaterialNode.Create;
-    Shape.Material.DiffuseColor := Vector3(0, 0, 0);
-    Shape.Material.SpecularColor := Vector3(0, 0, 0);
-    Shape.Material.AmbientIntensity := 0;
-    Shape.Material.EmissiveColor := Vector3(1, 1, 1);
+    Material := TUnlitMaterialNode.Create;
+    Material.EmissiveColor := Vector3(1, 1, 1);
+    Shape.Material := Material;
 
     Tex := TImageTextureNode.Create;
     Tex.FdUrl.Send(Meta.Name);
@@ -356,7 +355,7 @@ const
     'didn''t found it in spritesheet.' + NL +
     NL +
     'Developed using Castle Game Engine.' + NL +
-    'See http://castle-engine.sourceforge.io/ for latest versions' + NL +
+    'See http://castle-engine.io/ for latest versions' + NL +
     'of this program, sources and documentation.'
   ;
 

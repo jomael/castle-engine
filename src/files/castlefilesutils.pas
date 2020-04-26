@@ -92,7 +92,7 @@ type
   EExeNameNotAvailable = class(Exception);
   ERemoveFailed = class(Exception);
 
-{ Full (absolute) filename to executable file of this program.
+{ Full (absolute) FileName to executable file of this program.
   If it's impossible to obtain, raises exception @link(EExeNameNotAvailable).
 
   Under Windows this is simply ParamStr(0) (and it never raises
@@ -126,16 +126,21 @@ function ExeName: string; deprecated 'as this function is not portable (may rais
   see ApplicationConfig and ApplicationData. }
 function ProgramName: string; deprecated;
 
-{ Returns true if file exists and is a normal file.
+{ Returns @true if file exists and is a "regular" file.
+
   Detects and returns @false for special Windows files
   like 'con', 'c:\con', 'c:\somedir\con' etc.
   ('con' is a special device name).
-  For all other files (and other OSes) this function returns the same
-  as FileExists.
 
-  @deprecated Deprecated, since we use URLs everywhere,
-  use URIFileExists to check does file exist. }
-function NormalFileExists(const fileName: string): boolean; deprecated;
+  Returns @false for directories (on all operating systems,
+  unlike FPC FileExists which is inconsistent between OSes
+  -- on Unix, FPC FileExists surprisingly answers @true for a directory).
+
+  Consider using URIExists or URIFileExists instead of this function,
+  since in CGE you should use URLs for everything. }
+function RegularFileExists(const FileName: String): Boolean;
+
+function NormalFileExists(const FileName: String): Boolean; deprecated 'use RegularFileExists';
 
 { Path to store user configuration files.
   This is some directory that should be writeable
@@ -149,14 +154,14 @@ function UserConfigPath: string; deprecated;
 { Filename to store user configuration.
   Always returns absolute (not relative) path.
 
-  Returns filename that:
+  Returns FileName that:
   @unorderedList(
     @itemSpacing Compact
     @item is inside UserConfigPath
     @item depends on ApplicationName
     @item(has given Extension. Extension should contain
       beginning dot. E.g. FExtension = '.ini'. This way you can pass
-      FExtension = '' to have a filename without extension.)
+      FExtension = '' to have a FileName without extension.)
   )
 
   @deprecated Deprecated,
@@ -170,6 +175,11 @@ function UserConfigFile(const Extension: string): string; deprecated;
 function ProgramDataPath: string; deprecated;
 
 var
+  { URL used as a prefix of all @link(ApplicationConfig) returned URLs.
+    This overrides any autodetection of a suitable "user config" directory
+    done by default by @link(ApplicationConfig).
+
+    This must always end with a slash, if it's not empty. }
   ApplicationConfigOverride: string;
 
 { URL where we should read and write configuration files.
@@ -195,26 +205,42 @@ var
 function ApplicationConfig(const Path: string): string;
 
 { URL from which we should read data files.
-  This returns URL, which is comfortable since our engine operates
-  on URLs everywhere. On normal desktops systems this will return
-  a @code(file://...) URL. On Android, it will return an URL indicating
-  assets (files packages together inside Android apk) starting with
-  @code(assets:/...).
+  This returns an URL, which is comfortable since our engine operates
+  on URLs everywhere. On normal desktop systems this will return
+  a @code(file://...) URL, usually pointing to the "data" subdirectory
+  of your project.
+  See the list below for a detailed description how it behaves on all
+  platforms.
 
-  Given Path specifies a path under the data directory,
-  with possible subdirectories, with possible filename at the end.
+  See the manual about the purpose of "data" directory:
+  https://castle-engine.io/manual_data_directory.php .
+  Since Castle Game Engine 6.5, using @code('castle-data:/xxx') is more adviced
+  than explicitly calling @code(ApplicationData('xxx')).
+
+  Given Path parameter must specify a path under the data directory,
+  with possible subdirectories, with possible FileName at the end.
   The Path is a relative URL, so you should
-  always use slashes "/" (regardless of OS), and you can escape characters by %xx.
-  You can use Path = '' to get the URL to whole data directory.
-  Note that files there may be read-only, do not try to write there.
+  always use slashes "/" to separate subdirectories (regardless of OS),
+  and you can escape characters by %xx.
+  You can use Path = '' to get the URL to the whole data directory.
+
+  Remember that files inside the data directory may be read-only on some systems.
+  If you want to write files, use the @link(ApplicationConfig) instead.
 
   The algorithm to find base data directory (with respect to which
   Path is resolved) is OS-specific.
   It looks at ApplicationName, and searches a couple of common locations,
-  using the first location that exists. We try to look first inside
-  user-specific directories, then inside system-wide directories,
-  and as a fallback we use current exe directory (under Windows)
-  or current working directory (under other OSes).
+  using the first location that exists. We look inside
+  standard user-specific directories, then inside standard system-wide directories,
+  then we look for the "data" subdirectory
+  in the current exe directory (under Windows)
+  or in the current working directory (under other OSes).
+
+  @bold(The algorithm specification below is non-trivial.
+  Don't read it :@)
+  Instead folow the short version:
+  just place the files inside the @code(data) subdirectory
+  of your project, and everything will work out-of-the-box.)
 
   The exact details how we currently look for data directory
   (specified here so that you know how to install your program):
@@ -223,27 +249,42 @@ function ApplicationConfig(const Path: string): string;
     @itemLabel(Windows)
     @item(@orderedList(
       @item(@code(data) subdirectory inside our exe directory, if exists.)
-      @item(Last resort fallback: just our exe directory.)
+
+      @item(Otherwise: just our exe directory.
+        But this alternative is deprecated, please don't depend on it.
+        Instead, place the data inside the "data" subdirectory.
+      )
     ))
 
-    @itemLabel(macOS)
+    @itemLabel(macOS and iOS)
     @item(@orderedList(
-      @item(@code(Contents/Resources/data) subdirectory inside our bundle directory,
+      @item(On desktop macOS:
+        @code(Contents/Resources/data) subdirectory inside our bundle directory,
         if we are inside a bundle and such subdirectory exists.)
-      @item(Otherwise, algorithm on macOS follows algorithm on other Unixes,
-        see below.)
+      @item(On iOS:
+        @code(data) subdirectory inside our bundle directory,
+        if we are inside a bundle and such subdirectory exists.)
+      @item(Otherwise, algorithm follows the algorithm on desktop Unix.)
     ))
 
     @itemLabel(Android)
     @item(@orderedList(
-      @item(We always return @code(assets:/) directory, to read assets
-        from the apk.)
+      @item(We always return @code(castle-android-assets:/) directory,
+        which is a special location on Android where application
+        should store it's assets.)
     ))
 
-    @itemLabel(Unix (Linux, macOS, FreeBSD etc.))
+    @itemLabel(Nintendo Switch)
+    @item(@orderedList(
+      @item(We always return @code(castle-nx-contents:/) directory,
+        which is a special location where application
+        should store it's data files.)
+    ))
+
+    @itemLabel(Desktop Unix (Linux, macOS, FreeBSD...))
     @item(@orderedList(
       @item(@code(~/.local/share/) + ApplicationName.
-        This is nice user-specific data directory, following the default dictated by
+        This is user-specific data directory, following the default dictated by
         http://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html .
         If such directory exists, it is returned.
 
@@ -272,20 +313,27 @@ function ApplicationConfig(const Path: string): string;
 
         This is suitable for system-wide installations with package manager.)
 
-       @item(@code(data) subdirectory of current directory, if exists.
-         Using @code(data) subdirectory is usually comfortable,
-         it allows you to separate code from data better.)
+      @item(@code(data) subdirectory of the current directory, if exists.
+        This is easiest and comfortable for development, just keep
+        the "data" subdirectory alongside the executable binary.)
 
       @item(As a last resort, we just return the current directory.
-        So you can just place data files inside the current directory,
-        and if user will run your game from it's own directory --- it will
-        work without any fuss.)
+        So you can just place data files directly inside the current directory.
+
+        This alternative is deprecated, please don't depend on it.
+        Instead, place the data inside the "data" subdirectory.
+      )
     )
   )
 ) }
 function ApplicationData(const Path: string): string;
 
 var
+  { URL used as a prefix of all @link(ApplicationData) returned URLs.
+    This overrides any autodetection of a suitable "data" directory
+    done by default by @link(ApplicationData).
+
+    This must always end with a slash, if it's not empty. }
   ApplicationDataOverride: string;
 
 {$ifdef UNIX}
@@ -308,14 +356,14 @@ function ExpandHomePath(const FileName: string): string;
   When Warn = @false (default) raises an exception on failure,
   otherwise (when Warn = @true) makes only WritelnWarning on failure.
   @raises ERemoveFailed If delete failed, and Warn = @false. }
-procedure CheckDeleteFile(const FileName: string; const Warn: boolean = false);
+procedure CheckDeleteFile(const FileName: string; const Warn: Boolean = false);
 
 { Call RemoveDir and check result.
 
   When Warn = @false (default) raises an exception on failure,
   otherwise (when Warn = @true) makes only WritelnWarning on failure.
   @raises ERemoveFailed If delete failed, and Warn = @false. }
-procedure CheckRemoveDir(const DirFileName: string; const Warn: boolean = false);
+procedure CheckRemoveDir(const DirFileName: string; const Warn: Boolean = false);
 
 { Make sure directory exists, eventually creating it, recursively, checking result. }
 procedure CheckForceDirectories(const Dir: string);
@@ -331,21 +379,38 @@ procedure CheckRenameFile(const Source, Dest: string);
   When Warn = @false (default) raises an exception on failure,
   otherwise (when Warn = @true) makes only WritelnWarning on failure.
   @raises ERemoveFailed If delete failed, and Warn = @false. }
-procedure RemoveNonEmptyDir(const DirName: string; const Warn: boolean = false);
+procedure RemoveNonEmptyDir(const DirName: string; const Warn: Boolean = false);
 
-{ Substitute %d in given filename (or URL) pattern with successive numbers,
-  until the filename doesn't exist.
+{ Copies the contents from SourceDir to DestinationDir.
+  DestinationDir and necessary subdirectories are created, if needed.
+  Both SourceDir and DestinationDir may, but do not have to, end with PathDelim.
+
+  Note that DestinationDir contents are not cleared here.
+  In effect, the existing files (present in DestinationDir before the copy operation,
+  and not overwritten by corresponding files in SourceDir) will be left.
+  If you need to clear them, consider using
+
+  @longCode(#
+    if DirectoryExists(DestinationDir) then
+      RemoveNonEmptyDir(DestinationDir);
+    CopyDirectory(SourceDir, DestinationDir);
+  #)
+}
+procedure CopyDirectory(SourcePath, DestinationPath: string);
+
+{ Substitute %d in given FileName (or URL) pattern with successive numbers,
+  until the FileName doesn't exist.
 
   The idea is to start with number = 0 and do
   @code(Format(FileNamePattern, [number])), until you find non-existing
-  filename. Example filename pattern is @code(screenshot_%d.png),
-  by saving to this filename you're relatively sure that each save goes
+  FileName. Example FileName pattern is @code(screenshot_%d.png),
+  by saving to this FileName you're relatively sure that each save goes
   to a new file. Since we use standard @code(Format) function,
   you can use e.g. @code(screenshot_%04d.png) to have a number inside
-  the filename always at least 4 digits long.
+  the FileName always at least 4 digits long.
 
   Note that it's possible on every OS that some other program,
-  or a second copy of your own program, will write to the filename
+  or a second copy of your own program, will write to the FileName
   between FileNameAutoInc determined it doesn't exist and you opened the file.
   So using this cannot guarantee that you really always write to a new file
   (use proper file open modes for this). }
@@ -358,7 +423,7 @@ function FnameAutoInc(const FileNamePattern: string): string;
 
   Given DirName may be absolute or relative.
   Given DirName may but doesn't have to include trailing PathDelim.
-  Result is always absolute filename, and contains trailing PathDelim.
+  Result is always absolute FileName, and contains trailing PathDelim.
 
   Returns the same DirName if there's no parent directory.
 
@@ -367,7 +432,8 @@ function FnameAutoInc(const FileNamePattern: string): string;
   (no actual reading of any filesystem info), so it works faster and
   DirName does not need to exist. }
 function ParentPath(DirName: string;
-  DoExpandDirName: boolean = true): string;
+  DoExpandDirName: Boolean = true): string;
+  deprecated 'use URLs and operate on them using CastleURIUtils unit';
 
 { Combines BasePath with RelPath into complete path.
   BasePath MUST be an absolute path,
@@ -396,7 +462,7 @@ Function PathFileSearch(Const Name : String; ImplicitCurrentDir : Boolean = True
   On Windows, may also add alternative executable extensions (.com, .bat, .cmd).
   Searches in $PATH (and, if OS does this, in current directory --- this is standard
   on Windows but not on Unix).
-  Returns '' (if not found) or absolute filename. }
+  Returns '' (if not found) or absolute FileName. }
 function FindExe(const ExeName: string): string;
 
 { Add an exe file extension, searching for an existing file starting with ExePath.
@@ -406,11 +472,11 @@ function FindExe(const ExeName: string): string;
   just like @link(FindExe)), depending on what file exists. }
 function AddExeExtension(const ExePath: string): string;
 
-{ Get temporary filename, suitable for ApplicationName, checking that
+{ Get temporary FileName, suitable for ApplicationName, checking that
   it doesn't exist. }
 function GetTempFileNameCheck: string;
 
-{ Return a prefix (beginning of an absolute filename)
+{ Return a prefix (beginning of an absolute FileName)
   to save a series of temporary files. }
 function GetTempFileNamePrefix: string;
 
@@ -421,15 +487,12 @@ function BundlePath: string;
 {$endif}
 
 { Read file or URL contents to a string.
-  MimeType is returned, calculated just like the @link(Download) function.
-  If AllowStdIn, then URL = '-' (one dash) is treated specially:
-  it means to read contents from standard input (stdin, Input in Pascal). }
+  MimeType is returned, calculated just like the @link(Download) function. }
 function FileToString(const URL: string;
-  const AllowStdIn: boolean; out MimeType: string): string; overload;
-function FileToString(const URL: string;
-  const AllowStdIn: boolean = false): string; overload;
+  out MimeType: string): AnsiString; overload;
+function FileToString(const URL: string): AnsiString; overload;
 
-procedure StringToFile(const URL, contents: string);
+procedure StringToFile(const URL: String; const Contents: AnsiString);
 
 implementation
 
@@ -439,23 +502,15 @@ uses {$ifdef DARWIN} MacOSAll, {$endif} Classes, CastleStringUtils,
   CastleApplicationProperties;
 
 var
-  { Initialized once in initialization, afterwards constant.
-    On non-Windows, this may not be reliable, ExeName can even raise an exception.
-    Nothing except the initialization, and the ExeName function,
-    should access FExeName variable. }
+  { Initialized once in initialization, afterwards constant. }
   FExeName: string;
 
 function ExeName: string;
 begin
- { Under Windows ParamStr(0) is always OK, so there is no need to check
-   is FExeName = ''. }
- {$ifndef MSWINDOWS}
- if FExeName = '' then
-  raise EExeNameNotAvailable.Create(
-    'ExeName: Cannot obtain filename of executable of this program');
- {$endif}
-
- Result := FExeName;
+  if FExeName = '' then
+    raise EExeNameNotAvailable.Create(
+      'ExeName: Cannot obtain FileName of executable of this program');
+  Result := FExeName;
 end;
 
 function ProgramName: string;
@@ -463,22 +518,26 @@ begin
   Result := ApplicationName;
 end;
 
-function NormalFileExists(const FileName: string): boolean;
-{$ifdef MSWINDOWS}
-var s: string;
+function NormalFileExists(const FileName: string): Boolean;
 begin
- { Don't warn about deprecation of ExtractOnlyFileName,
-   since NormalFileExists is deprecated too... }
- {$warnings off}
- s := UpperCase(ExtractOnlyFileName(fileName));
- {$warnings on}
- result :=  FileExists(fileName) and
-    (not( (s='CON') or (s='PRN') or (s='NUL') or
-          (s='LPT1') or (s='LPT2') or (s='LPT3') or (s='LPT4') or
-          (s='COM1') or (s='COM2') or (s='COM3') or (s='COM4') ) );
+  Result := RegularFileExists(FileName);
+end;
+
+function RegularFileExists(const FileName: string): Boolean;
+{$ifdef MSWINDOWS}
+var
+  S: String;
+begin
+  {$warnings off}
+  S := UpperCase(ExtractOnlyFileName(FileName));
+  {$warnings on}
+  Result := FileExists(FileName) and
+     (not( (S = 'CON') or (S = 'PRN') or (S = 'NUL') or
+           (S = 'LPT1') or (S = 'LPT2') or (S = 'LPT3') or (S = 'LPT4') or
+           (S = 'COM1') or (S = 'COM2') or (S = 'COM3') or (S = 'COM4') ) );
 {$else}
 begin
- result := FileExists(filename);
+  Result := FileExists(FileName) and not DirectoryExists(FileName);
 {$endif}
 end;
 
@@ -501,9 +560,13 @@ begin
 
   { ApplicationConfig relies that ForceDirectories is reliable
     (on Android, it's not reliable before activity started)
-    and ApplicationConfigOverride is set (on iOS, it's not set before CGEApp_Open called). }
+    and ApplicationConfigOverride is set
+    (on iOS, it's not set before CGEApp_Initialize called). }
   if not ApplicationProperties._FileAccessSafe then
-    WritelnWarning('Using ApplicationConfig(''%s'') before the Application.OnInitialize was called. This is not reliable on mobile platforms (Android, iOS). This usually happens if you open a file from the "initialization" section of a unit. You should do it in Application.OnInitialize instead.',
+    WritelnWarning('Using ApplicationConfig(''%s'') before the Application.OnInitialize was called. ' +
+      'This is not reliable on mobile platforms (Android, iOS). ' +
+      'This usually happens if you open a file from the "initialization" section of a unit. ' +
+      'You should do it in Application.OnInitialize instead.',
       [Path]);
 
   ConfigDir := InclPathDelim(GetAppConfigDir(false));
@@ -521,7 +584,7 @@ begin
 end;
 
 var
-  ApplicationDataIsCache: boolean = false;
+  ApplicationDataIsCache: Boolean = false;
   ApplicationDataCache: string;
 
 function ApplicationData(const Path: string): string;
@@ -532,10 +595,10 @@ function ApplicationData(const Path: string): string;
   var
     ExePath: string;
   begin
-    {$push} // knowingly using deprecated; ExeName should be undeprecated but internal one day
     {$warnings off}
+    // knowingly using deprecated; ExeName should be undeprecated but internal one day
     ExePath := ExtractFilePath(ExeName);
-    {$pop}
+    {$warnings on}
 
     Result := ExePath + 'data' + PathDelim;
     if DirectoryExists(Result) then Exit;
@@ -598,14 +661,15 @@ begin
   if not ApplicationDataIsCache then
   begin
     ApplicationDataCache :=
-      {$ifdef ANDROID}
+      {$if defined(CASTLE_NINTENDO_SWITCH)}
+        'castle-nx-contents:/'
+      {$elseif defined(ANDROID)}
         'castle-android-assets:/'
       {$else}
         FilenameToURISafe(GetApplicationDataPath)
       {$endif}
     ;
-    if Log then
-      WritelnLog('Path', Format('Program data path detected as "%s"', [ApplicationDataCache]));
+    WritelnLog('Path', Format('Program data path detected as "%s"', [ApplicationDataCache]));
     ApplicationDataIsCache := true;
   end;
 
@@ -669,9 +733,7 @@ begin
 {$endif}
 end;
 
-{ file handling ---------------------------------------------------------- }
-
-procedure CheckDeleteFile(const FileName: string; const Warn: boolean);
+procedure CheckDeleteFile(const FileName: string; const Warn: Boolean);
 begin
   if not SysUtils.DeleteFile(FileName) then
   begin
@@ -681,7 +743,7 @@ begin
   end;
 end;
 
-procedure CheckRemoveDir(const DirFileName:  string; const Warn: boolean = false);
+procedure CheckRemoveDir(const DirFileName:  string; const Warn: Boolean = false);
 begin
   if not RemoveDir(DirFileName) then
   begin
@@ -729,37 +791,80 @@ begin
   end;
 end;
 
-procedure RemoveNonEmptyDir_Internal(const FileInfo: TFileInfo; Data: Pointer; var StopSearch: boolean);
-var
-  Warn: boolean;
-begin
-  if SpecialDirName(FileInfo.Name) then Exit;
+{ RemoveNonEmptyDir with helpers ---------------------------------------------------------- }
 
+procedure RemoveNonEmptyDir_Internal(const FileInfo: TFileInfo; Data: Pointer; var StopSearch: Boolean);
+var
+  Warn: Boolean;
+begin
   Warn := PBoolean(Data)^;
 
   if FileInfo.Directory then
-    CheckRemoveDir(FileInfo.AbsoluteName, Warn) else
+    CheckRemoveDir(FileInfo.AbsoluteName, Warn)
+  else
     CheckDeleteFile(FileInfo.AbsoluteName, Warn);
 end;
 
-procedure RemoveNonEmptyDir(const DirName: string; const Warn: boolean = false);
+procedure RemoveNonEmptyDir(const DirName: string; const Warn: Boolean = false);
 begin
   FindFiles(DirName, '*', true,
     @RemoveNonEmptyDir_Internal, @Warn, [ffRecursive, ffDirContentsLast]);
   CheckRemoveDir(Dirname, Warn);
 end;
 
+{ CopyDirectory with helpers ------------------------------------------------- }
+
+type
+  TCopyDirectoryHandler = class
+    SourcePath, DestinationPath: String;
+    procedure FoundFile(const FileInfo: TFileInfo; var StopSearch: Boolean);
+  end;
+
+procedure TCopyDirectoryHandler.FoundFile(const FileInfo: TFileInfo; var StopSearch: Boolean);
+var
+  NewFileName: String;
+begin
+  { Safer to use FileNameCaseSensitive always.
+    On Windows, this should still be true, as we glue SourcePath with rest ourselves
+    in CastleFindFiles. }
+  if not IsPrefix(SourcePath, FileInfo.AbsoluteName, false) then
+    raise Exception.CreateFmt('Cannot copy directory, filename in source directory ("%s") does not have prefix of this directory ("%s")', [
+      FileInfo.AbsoluteName,
+      SourcePath
+    ]);
+  NewFileName := DestinationPath + PrefixRemove(SourcePath, FileInfo.AbsoluteName, false);
+  CheckForceDirectories(ExtractFilePath(NewFileName));
+  CheckCopyFile(FileInfo.AbsoluteName, NewFileName);
+end;
+
+procedure CopyDirectory(SourcePath, DestinationPath: String);
+var
+  Handler: TCopyDirectoryHandler;
+begin
+  SourcePath := ExpandFileName(InclPathDelim(SourcePath));
+  DestinationPath := ExpandFileName(InclPathDelim(DestinationPath));
+
+  Handler := TCopyDirectoryHandler.Create;
+  try
+    Handler.SourcePath := SourcePath;
+    Handler.DestinationPath := DestinationPath;
+    FindFiles(SourcePath, '*', false, @Handler.FoundFile, [ffRecursive]);
+  finally FreeAndNil(Handler) end;
+end;
+
 { dir handling -------------------------------------------------------- }
 
 function FileNameAutoInc(const FileNamePattern: string): string;
-var i: integer;
+var
+  I: Integer;
 begin
- i := 0;
- repeat
-  result := Format(FileNamePattern,[i]);
-  if not URIFileExists(result) then exit;
-  Inc(i);
- until false;
+  I := 0;
+  repeat
+    result := Format(FileNamePattern, [I]);
+    if URIExists(Result) in [ueNotExists, ueUnknown] then
+      Exit;
+    Inc(I);
+  until false;
 end;
 
 function FnameAutoInc(const FileNamePattern: string): string;
@@ -771,7 +876,7 @@ end;
   CastleFilesUtils instead of casleutils_filenames.inc is
   using ExpandFileName. }
 
-function ParentPath(DirName: string; DoExpandDirName: boolean): string;
+function ParentPath(DirName: string; DoExpandDirName: Boolean): string;
 var p: integer;
 begin
 {$ifdef MSWINDOWS}
@@ -819,11 +924,16 @@ end;
 
 Function PathFileSearch(Const Name : String; ImplicitCurrentDir : Boolean = True) : String;
 
+{$ifdef FPC}
+
 { This is identical to FileSearch, except on Windows each $PATH component
   is stripped from surrounding double quotes.
-  Added also "not DirectoryExists(Result)" check, to avoid accidentaly finding
-  a directory named like file (esp. easy on Unix without '.exe' extension),
-  at least with FPC 2.6.4 and 2.7.1 FileExists is true for directories. }
+
+  Also, uses RegularFileExists instead of FileExists,
+  thus it avoids FPC FileExists inconsistency
+  (on Unix, FPC FileExists returns true).
+  It matters, otherwise e.g. searching for "fpc" on Unix
+  could find directory "fpc" that is under a directory on $PATH. }
 
 Var
   I : longint;
@@ -833,7 +943,7 @@ begin
   Result:=Name;
   temp:=SetDirSeparators(GetEnvironmentVariable('PATH'));
   // Start with checking the file in the current directory
-  If ImplicitCurrentDir and (Result <> '') and FileExists(Result) and not DirectoryExists(Result) Then
+  If ImplicitCurrentDir and (Result <> '') and RegularFileExists(Result) Then
     exit;
   while True do begin
     If Temp = '' then
@@ -860,11 +970,19 @@ begin
       {$endif}
       Result:=IncludeTrailingPathDelimiter(Result)+name;
     end;
-    If (Result <> '') and FileExists(Result) and not DirectoryExists(Result) Then
+    If (Result <> '') and RegularFileExists(Result) Then
       exit;
   end;
   result:='';
 end;
+
+{$else}
+
+begin
+  Result := FileSearch(Name, GetEnvironmentVariable('PATH'));
+end;
+
+{$endif}
 
 function FindExe(const ExeName: string): string;
 begin
@@ -888,24 +1006,50 @@ begin
   {$ifdef MSWINDOWS}
   { The default order of extensions is .com, .exe, .bat, .cmd,
     see http://stackoverflow.com/questions/605101/order-in-which-command-prompt-executes-files-with-the-same-name-a-bat-vs-a-cmd }
-  if FileExists(ExePath + '.com') then
+  if RegularFileExists(ExePath + '.com') then
     Result := ExePath + '.com' else
-  if FileExists(ExePath + '.exe' { ExeExtension }) then
+  if RegularFileExists(ExePath + '.exe' { ExeExtension }) then
     Result := ExePath + '.exe' { ExeExtension } else
-  if FileExists(ExePath + '.bat') then
+  if RegularFileExists(ExePath + '.bat') then
     Result := ExePath + '.bat' else
-  if FileExists(ExePath + '.cmd') then
+  if RegularFileExists(ExePath + '.cmd') then
     Result := ExePath + '.cmd' else
   {$else}
     Result := ExePath + ExeExtension;
   {$endif}
 end;
 
+{$ifndef FPC}
+{ Get temporary FileName, also creating this file, using WinAPI.
+  There seems to be no cross-platform function for this in Delphi. }
+function GetTempFileNameWindows(const Prefix: AnsiString): AnsiString;
+var
+  MyPath, MyFileName: array[0..MAX_PATH] of AnsiChar;
+begin
+  FillChar(MyPath, MAX_PATH, 0);
+  FillChar(MyFileName, MAX_PATH, 0);
+  OSCheck(GetTempPathA(SizeOf(MyPath), MyPath) <> 0);
+  OSCheck(GetTempFileNameA(MyPath, PAnsiChar(Prefix), 0, MyFileName) <> 0);
+  Result := MyFileName;
+end;
+
+function GetTempFileNameCheck: string;
+begin
+  Result := GetTempFileNameWindows(ApplicationName);
+end;
+
+function GetTempFileNamePrefix: string;
+begin
+  Result := GetTempFileNameWindows(ApplicationName);
+end;
+{$else}
+
 function GetTempFileNameCheck: string;
 begin
   Result := GetTempFileName('', ApplicationName);
   { Be paranoid and check whether file does not exist. }
-  if FileExists(Result) then
+  if RegularFileExists(Result) or
+     DirectoryExists(Result) then
     raise Exception.CreateFmt('Temporary file "%s" already exists', [Result]);
 end;
 
@@ -924,13 +1068,15 @@ begin
 
   { Check is it really Ok. }
   if FindFirstFile(Result, '*', true, [], FileInfo) then
-    raise Exception.CreateFmt('Failed to generate unique temporary file prefix "%s": filename "%s" already exists',
+    raise Exception.CreateFmt('Failed to generate unique temporary file prefix "%s": FileName "%s" already exists',
       [Result, FileInfo.AbsoluteName]);
 end;
 
+{$endif}
+
 {$ifdef DARWIN}
 var
-  BundlePathCached: boolean;
+  BundlePathCached: Boolean;
   BundlePathCache: string;
 
 function BundlePath: string;
@@ -963,39 +1109,32 @@ end;
 {$endif DARWIN}
 
 function FileToString(const URL: string;
-  const AllowStdIn: boolean; out MimeType: string): string;
+  out MimeType: string): AnsiString;
 var
   F: TStream;
 begin
-  if AllowStdIn and (URL = '-') then
-  begin
-    Result := ReadGrowingStreamToString(StdInStream);
-    MimeType := '';
-  end else
-  begin
-    F := Download(URL, [], MimeType);
-    try
-      { Some streams can be optimized, just load file straight to string memory }
-      if (F is TFileStream) or
-         (F is TMemoryStream) then
-      begin
-        SetLength(Result, F.Size);
-        if F.Size <> 0 then
-          F.ReadBuffer(Result[1], Length(Result));
-      end else
-        Result := ReadGrowingStreamToString(F);
-    finally FreeAndNil(F) end;
-  end;
+  F := Download(URL, [], MimeType);
+  try
+    { Some streams can be optimized, just load file straight to string memory }
+    if (F is TFileStream) or
+       (F is TMemoryStream) then
+    begin
+      SetLength(Result, F.Size);
+      if F.Size <> 0 then
+        F.ReadBuffer(Result[1], Length(Result));
+    end else
+      Result := ReadGrowingStreamToString(F);
+  finally FreeAndNil(F) end;
 end;
 
-function FileToString(const URL: string; const AllowStdIn: boolean): string;
+function FileToString(const URL: string): AnsiString;
 var
   MimeType: string;
 begin
-  Result := FileToString(URL, AllowStdIn, MimeType { ignored });
+  Result := FileToString(URL, MimeType { ignored });
 end;
 
-procedure StringToFile(const URL, Contents: string);
+procedure StringToFile(const URL: String; const Contents: AnsiString);
 var
   F: TStream;
 begin
@@ -1006,43 +1145,35 @@ begin
   finally FreeAndNil(F) end;
 end;
 
-procedure DoInitialization;
+procedure InitializeExeName;
+{$ifdef LINUX}
+var
+  ExeLinkName: String;
+{$endif}
 begin
-  { inicjalizacja FExeName }
-
-  { First, assume that there is no way to obtain FExeName
-    on this platform }
-  FExeName := '';
+  { Initialize FExeName. }
+  FExeName :=
+    {$ifdef MSWINDOWS} ExeNameFromGetModule
+    // On non-Windows OSes, using ParamStr(0) for this is not reliable, but at least it's some default
+    {$else} ParamStr(0)
+    {$endif};
 
   {$ifdef LINUX}
-
-  { Pod UNIXem wlasciwie ExeName nie powinno nam byc do niczego
-    potrzebne - pod Windowsem uzywam ExeName np. aby uzyskac sciezke
-    do aplikacji i tam zalozyc plik ini, ale pod UNIXem
-    powinienem uzywac do tego celu katalogu $HOME albo czytac ustawienia
-    gdzies z /etc.
-
-    Ale zrobilem to. Nie jest to 100% pewna metoda ale nie jest tez taka
-    zupelnie nieelegancka : korzystamy z proc/getpid()/exe.
-
-    Notka : NIE mozemy w zaden sposob uzywac ParamStr(0) do obliczania fExeName.
-    Nasze ParamStr(0) jest ustalane przez proces ktory nas wywolal - moze to
-    byc nazwa naszego pliku wykonywalnmego lub symboic linka do niego, ze sciezka
-    wzgledna lub bezwzgledna lub bez sciezki gdy nasz executable byl wsrod $PATH
-    ale to wszystko to tylko GDYBANIE - taka jest konwencja ale tak naprawde
-    nasze ParamStr(0) moze byc absolutnie czymkolwiek. Nie mozemy wiec w zaden
-    sposob polegac na tym ze jego wartosc okresla cokolwiek w jakikolwiek sposob. }
-
+  { Under Linux, try to use /proc/getpid()/exe.
+    This is more reliable than ParamStr(0),
+    as ParamStr(0) is set by the calling process,
+    and it may be absolute or relative, it may be symlink,
+    and in general it may contain anything. }
+  ExeLinkName := '/proc/' + IntToStr(FpGetpid) + '/exe';
   try
-    FExeName := CastleReadLink('/proc/' + IntToStr(FpGetpid) + '/exe')
+    FExeName := CastleReadLink(ExeLinkName);
   except
-    on EOSError do FExeName := '';
+    on EOSError do
+      WritelnWarning('Cannot read "%s" (to get ExeName on Linux)', [ExeLinkName]);
   end;
   {$endif}
-
-  {$ifdef MSWINDOWS} FExeName := ParamStr(0) {$endif};
 end;
 
 initialization
-  DoInitialization;
+  InitializeExeName;
 end.

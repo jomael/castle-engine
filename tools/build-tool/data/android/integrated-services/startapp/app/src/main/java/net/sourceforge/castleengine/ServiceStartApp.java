@@ -1,4 +1,20 @@
 /* -*- tab-width: 4 -*- */
+
+/*
+  Copyright 2018-2020 Michalis Kamburelis.
+
+  This file is part of "Castle Game Engine".
+
+  "Castle Game Engine" is free software; see the file COPYING.txt,
+  included in this distribution, for details about the copyright.
+
+  "Castle Game Engine" is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  ----------------------------------------------------------------------------
+*/
+
 package net.sourceforge.castleengine;
 
 import android.util.Log;
@@ -18,7 +34,7 @@ import com.startapp.android.publish.StartAppSDK;
  */
 public class ServiceStartApp extends ServiceAbstract
 {
-    private static final String TAG = "${NAME}.castleengine.ServiceStartApp";
+    private static final String CATEGORY = "ServiceStartApp";
 
     private boolean initialized, scheduledStart, scheduledResume;
     private StartAppAd startAppAd;
@@ -41,7 +57,7 @@ public class ServiceStartApp extends ServiceAbstract
 
         startAppAd = new StartAppAd(getActivity());
         StartAppSDK.init(getActivity(), appId, false);
-        Log.i(TAG, "StartApp initialized (will send delayed onStart: " + scheduledStart + ", will send delayed onResume: " + scheduledResume + ")");
+        logInfo(CATEGORY, "StartApp initialized (will send delayed onStart: " + scheduledStart + ", will send delayed onResume: " + scheduledResume + ")");
         initialized = true;
 
         if (scheduledStart) {
@@ -112,16 +128,16 @@ public class ServiceStartApp extends ServiceAbstract
             startAppAd.showAd(new AdDisplayListener() {
                 @Override
                 public void adHidden(Ad ad) {
-                    Log.i(TAG, "StartApp adHidden");
+                    logInfo(CATEGORY, "StartApp adHidden");
                     fullScreenAdClosed(true);
                 }
                 @Override
                 public void adDisplayed(Ad ad) {
-                    Log.i(TAG, "StartApp adDisplayed");
+                    logInfo(CATEGORY, "StartApp adDisplayed");
                 }
                 @Override
                 public void adClicked(Ad ad) {
-                    Log.i(TAG, "StartApp adClicked");
+                    logInfo(CATEGORY, "StartApp adClicked");
                 }
 
                 // https://github.com/StartApp-SDK/Documentation/wiki/Android-InApp-Documentation
@@ -133,7 +149,7 @@ public class ServiceStartApp extends ServiceAbstract
 
                 @Override
                 public void adNotDisplayed(Ad arg0) {
-                    Log.i(TAG, "StartApp adNotDisplayed");
+                    logInfo(CATEGORY, "StartApp adNotDisplayed");
                     fullScreenAdClosed(false);
                 }
             }); // show the ad

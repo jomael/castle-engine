@@ -16,19 +16,16 @@
 {$ifdef read_interface}
 
 const
-  ProjectionTypeToStr: array [TProjectionType] of string =
-  ('Orthographic', 'Perspective', 'Frustum');
-
-  DefaultMaterial_1AmbientColor: TVector3 = (Data: (0.2, 0.2, 0.2)) deprecated 'use TMaterialInfo.DefaultAmbientColor';
-  DefaultMaterialAmbientIntensity = 0.2 deprecated 'use TMaterialInfo.DefaultAmbientIntensity';
-  DefaultMaterialDiffuseColor: TVector3 = (Data: (0.8, 0.8, 0.8)) deprecated 'use TMaterialInfo.DefaultDiffuseColor';
-  DefaultMaterialSpecularColor: TVector3 = (Data: (0, 0, 0)) deprecated 'use TMaterialInfo.DefaultSpecularColor';
-  DefaultMaterialEmissiveColor: TVector3 = (Data: (0, 0, 0)) deprecated 'use TMaterialInfo.DefaultEmissiveColor';
-  DefaultMaterialShininess = 0.2 deprecated 'use TMaterialInfo.DefaultShininess';
-  DefaultMaterialTransparency = 0.0 deprecated 'use TMaterialInfo.DefaultTransparency';
-  DefaultMaterialMirror = 0.0 deprecated 'use TMaterialInfo.DefaultMirror';
-  DefaultMaterialReflSpecularExp = 1000000 deprecated 'use TMaterialInfo.DefaultReflSpecularExp';
-  DefaultMaterialTransSpecularExp = 1000000 deprecated 'use TMaterialInfo.DefaultTransSpecularExp';
+  DefaultMaterial_1AmbientColor: TVector3 = (Data: (0.2, 0.2, 0.2)) deprecated 'use TPhongMaterialInfo.DefaultAmbientColor';
+  DefaultMaterialAmbientIntensity = 0.2 deprecated 'use TPhongMaterialInfo.DefaultAmbientIntensity';
+  DefaultMaterialDiffuseColor: TVector3 = (Data: (0.8, 0.8, 0.8)) deprecated 'use TPhongMaterialInfo.DefaultDiffuseColor';
+  DefaultMaterialSpecularColor: TVector3 = (Data: (0, 0, 0)) deprecated 'use TPhongMaterialInfo.DefaultSpecularColor';
+  DefaultMaterialEmissiveColor: TVector3 = (Data: (0, 0, 0)) deprecated 'use TPhongMaterialInfo.DefaultEmissiveColor';
+  DefaultMaterialShininess = 0.2 deprecated 'use TPhongMaterialInfo.DefaultShininess';
+  DefaultMaterialTransparency = 0.0 deprecated 'use TPhongMaterialInfo.DefaultTransparency';
+  DefaultMaterialMirror = 0.0 deprecated 'use TPhongMaterialInfo.DefaultMirror';
+  DefaultMaterialReflSpecularExp = 1000000 deprecated 'use TPhongMaterialInfo.DefaultReflSpecularExp';
+  DefaultMaterialTransSpecularExp = 1000000 deprecated 'use TPhongMaterialInfo.DefaultTransSpecularExp';
 
   { Constants for @link(TAsciiTextNode_1.FdJustification).Value.
     @groupBegin }
@@ -105,7 +102,7 @@ const
   DefaultHeightMapScale = 0.01;
   DefaultVRML1CreaseAngle = 0.5;
 
-  DefaultViewpointFieldOfView = Pi / 4;
+  DefaultViewpointFieldOfView = TCastlePerspective.DefaultFieldOfView;
   DefaultNavigationInfoHeadlight = true;
 
   DefaultRenderedTextureWidth  = 128;
@@ -160,7 +157,7 @@ var
     from this module. If you want to change them inside VRML/X3D
     file (for example, to affect only part of the scene), use the
     Triangulation node, see
-    http://castle-engine.sourceforge.net/x3d_implementation_geometry3d_extensions.php#section_triangulation
+    https://castle-engine.io/x3d_implementation_geometry3d_extensions.php#section_triangulation
 
     These variables @italic(must) always honour
     @link(MinTriangulationSlices),
@@ -174,33 +171,6 @@ var
   { @groupEnd }
 
 const
-  { URNs used to indicate standard VRML / X3D nodes.
-
-    Funny thing, I actually didn't found anywhere a definite official
-    statement that they are using such-and-such URNs.
-
-    X3D specification refers to RFC
-    [http://www.ietf.org/rfc/rfc3541.txt?number=3541] which, basically,
-    just says "we like URNs and we'll use them" and nothing more.
-    Same thing for VRML 97 spec
-    [http://www.web3d.org/x3d/specifications/vrml/ISO-IEC-14772-VRML97/part1/extensions.html].
-    There is no precise answer e.g. what URN should be used to
-    Indicate some standard VRML 97 / X3D node.
-
-    I constructed URNs below looking at examples in the RFC,
-    annotated by a funny line "The following examples are not
-    guaranteed to be real. They are presented for pedagogical reasons only."
-
-    @groupBegin }
-  URNVRML97Nodes = 'urn:web3d:vrml97:node:';
-  URNX3DNodes = 'urn:web3d:x3d:node:';
-  { @groupEnd }
-
-  { URN to indicate BitManagement nodes. This should work, according to
-    http://www.bitmanagement.com/developer/contact/examples/layer/index.html
-    example EXTERNPROTO. }
-  URNBitManagementNodes = 'urn:inet:bitmanagement.de:node:';
-
   { Standard prefix name for a time sensor to be recognized as a "named animation"
     for TCastleSceneCore.PlayAnimation and friends. }
   DefaultAnimationPrefix = '';
@@ -214,7 +184,7 @@ var
   AnyNodeDestructionNotifications: TNodeDestructionNotificationList;
 
   { Cache, for all the resources not tied with renderer context. }
-  X3DCache: TX3DNodesCache;
+  X3DCache: TX3DFontTexturesCache;
 
   { Should we emit a warning when loading data from
     an URI with an absolute filename, like @code(file:///c:/blah/myimage.png).
@@ -226,6 +196,56 @@ var
     In your data (X3D, VRML, Collada, OBJ materials...),
     you should always use relative paths. }
   WarnAboutAbsoluteFilenames: boolean = true;
+
+  (*Whether to resolve relative URLs within X3D prototypes with respect
+    to the file that instantiated the prototype (false, default, compatible with Instant Player)
+    or to the file that defined the prototype (true, compatible with BS Contact).
+
+    This is unfortunately ambiguous in the X3D specification, and various
+    other X3D browsers behave differently.
+
+    Consider you have an X3D file like this:
+
+    @preformatted(
+    EXTENRPROTO MyObject [ field MFString urlTexture ] "textures/library.wrl#MyObject"
+    MyObject { urlTexture "textures/myfile.png" }
+    MyObject { urlTexture "myfile.png" }
+    )
+
+    And next to this file, in a subfolder, you have these files:
+
+    @preformatted(
+    textures/library.wrl
+    textures/myfile.png
+    )
+
+    Which declaration of @code(MyObject) is correct?
+
+    @unorderedList(
+      @item(When this is false, you should write @code(MyObject { urlTexture "myfile.png" }).
+        The URL is resolved with respect to the file that contains
+        the ImageTexture node, which is "textures/library.wrl".)
+
+      @item(When this is true, you should write @code(MyObject { urlTexture "textures/myfile.png" }).
+        The URL is resolved with respect to the file that instantiates
+        the prototype.
+
+        Note that our implementation of this case is a bit incomplete.
+        It works for most nodes (ImageTexture / AudioClip / ShaderPart / ...),
+        but it does not work for the Inline node,
+        and for URLs in recursive EXTERNPROTO.
+        So URLs in Inline nodes, or in EXTERNPROTO, are always resolved
+        like RebaseRelativeUrlsInPrototypes = false.
+      )
+    )
+
+    See the X3D specification
+    http://www.web3d.org/documents/specifications/19775-1/V3.3/Part01/components/networking.html#RelativeURLs
+    (unfortunately, it does not clarify this case definitively).
+    See our testcase in
+    https://github.com/castle-engine/demo-models/tree/master/prototypes/relative_urls_test
+  *)
+  RebaseRelativeUrlsInPrototypes: boolean = false;
 
 { Free all unused VRML/X3D nodes on the list, then free and @nil the list
   itself. }
@@ -255,10 +275,6 @@ function KeyRange(Key: TSingleList;
   setting reference to @nil. Analogous to standard FreeAndNil,
   but checks if node is used first. }
 procedure FreeIfUnusedAndNil(var Obj);
-
-{ Does this URN indicate an X3D node that is a Castle Game Engine extension.
-  This is a helper for implementing @link(TX3DNode.URNMatching). }
-function URNMatchingCastle(const URN, ClassX3DType: string): boolean;
 
 {$endif read_interface}
 
@@ -348,14 +364,6 @@ begin
   Temp := TX3DNode(Obj);
   Pointer(Obj) := nil;
   Temp.FreeIfUnused;
-end;
-
-function URNMatchingCastle(const URN, ClassX3DType: string): boolean;
-begin
-  Result :=
-    (URN = 'urn:castle-engine.sourceforge.io:node:' + ClassX3DType) or
-    (URN = 'urn:castle-engine.sourceforge.net:node:' + ClassX3DType) or
-    (URN = 'urn:vrmlengine.sourceforge.net:node:' + ClassX3DType);
 end;
 
 {$endif read_implementation}

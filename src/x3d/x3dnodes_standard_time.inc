@@ -61,13 +61,16 @@
       observe when @link(IsActive) changed to @false, by registering
       a callback on @code(EventIsActive.AddNotification).
       See the examples/3d_rendering_processing/listen_on_x3d_events.lpr .
+      Or, even better (simpler and more reliable) register a stop
+      notification using @link(TPlayAnimationParameters.StopNotification) with
+      @link(TCastleSceneCore.PlayAnimation).
 
       BTW, the @italic("duration") mentioned above is usually just
       @link(GetCycleInterval), but sometimes it's a @link(GetCycleInterval)
       multiplied by some scaling factor, like in case of @link(TAudioClipNode)
       or @link(TMovieTextureNode)).
 
-      For a precise (and complicated:) specification of how this behaves,
+      For a precise (and more complicated) specification of how this behaves,
       see the X3D TimeSensor.elapsedTime specification at
       http://www.web3d.org/documents/specifications/19775-1/V3.3/Part01/components/time.html#TimeSensor }
     function ElapsedTime: TFloatTime;
@@ -122,6 +125,9 @@
     EventIsPaused: TSFBoolEvent;
     { May be @nil if node doesn't have a "cycleTime" event. }
     EventCycleTime: TSFTimeEvent;
+
+    { Propagate this to all send events, to make animation fade-in/out. }
+    PartialSend: TPartialSend;
 
     { Cycle interval for this time-dependent node. }
     function CycleInterval: TFloatTime;
@@ -187,7 +193,7 @@
     class function ExposedEventsFieldClass: TX3DFieldClass; override;
     procedure ExposedEventReceive(Event: TX3DEvent; AValue: TX3DField;
       const Time: TX3DTime); override;
-  public
+  private
     NeverIgnore: Cardinal;
   end;
 
@@ -195,6 +201,7 @@
   TAbstractTimeDependentNode = class(TAbstractChildNode, IAbstractTimeDependentNode)
   strict private
     FInternalTimeDependentHandler: TInternalTimeDependentHandler;
+  private
     { To satify IAbstractTimeDependentNode }
     function GetInternalTimeDependentHandler: TInternalTimeDependentHandler;
   strict protected
@@ -308,7 +315,6 @@
     procedure CreateNode; override;
 
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdCycleInterval: TSFTimeIgnoreWhenActive;
     public property FdCycleInterval: TSFTimeIgnoreWhenActive read FFdCycleInterval;
@@ -329,6 +335,9 @@
 
     strict private FFdEnabled: TSFBool;
     public property FdEnabled: TSFBool read FFdEnabled;
+
+    strict private FFdDetectAffectedFields: TSFBool;
+    public property FdDetectAffectedFields: TSFBool read FFdDetectAffectedFields;
 
     strict private FFdFractionIncreasing: TSFBool;
     public property FdFractionIncreasing: TSFBool read FFdFractionIncreasing;
@@ -364,10 +373,31 @@
 
       @groupBegin }
     procedure FakeTime(const TimeInAnimation: TFloatTime;
-      const ALoop, AFractionIncreasing: boolean); overload;
+      const ALoop, AFractionIncreasing: boolean;
+      const PartialSend: TPartialSend = nil); overload;
     procedure FakeTime(const TimeInAnimation: TFloatTime;
       const ALoop, AFractionIncreasing: boolean;
-      const TimeOfEvents: TX3DTime); overload;
+      const TimeOfEvents: TX3DTime;
+      const PartialSend: TPartialSend = nil); overload;
+    { @groupEnd }
+
+    { Start or stop the time sensor @italic(right now),
+      by setting the fields of this time sensor.
+
+      Usually you should prefer using the @link(TCastleSceneCore.PlayAnimation)
+      or @link(TCastleSceneCore.StopAnimation) instead of these methods.
+      The scene methods allow to play the animation with lots of features,
+      and are more comfortable to use (e.g. you do not need to find
+      the TTimeSensorNode reference).
+
+      Using these methods directly is useful to play multiple animations
+      simultaneously.
+
+      @groupBegin }
+    procedure Start(const ALoop: Boolean;
+      const AFractionIncreasing: Boolean = true;
+      const InitialTime: TFloatTime = 0);
+    procedure Stop;
     { @groupEnd }
 
     {$I auto_generated_node_helpers/x3dnodes_timesensor.inc}
@@ -473,7 +503,7 @@ begin
   if Value <> FIsActive then
   begin
     FIsActive := Value;
-    EventIsActive.Send(Value, Node.Scene.NextEventTime);
+    EventIsActive.Send(Value, Node.Scene.NextEventTime, PartialSend);
   end;
 end;
 
@@ -482,7 +512,7 @@ begin
   if Value <> FIsPaused then
   begin
     FIsPaused := Value;
-    EventIsPaused.Send(Value, Node.Scene.NextEventTime);
+    EventIsPaused.Send(Value, Node.Scene.NextEventTime, PartialSend);
   end;
 end;
 
@@ -506,7 +536,7 @@ begin
       for next elapsedTime send
       (reproduction: escape_universe game restart.) }
 
-    EventElapsedTime.Send(Value, Node.Scene.NextEventTime);
+    EventElapsedTime.Send(Value, Node.Scene.NextEventTime, PartialSend);
   end;
 end;
 
@@ -564,8 +594,7 @@ var
           CycleTime := NewTime - ElapsedTimeInCycle;
 
           {$ifdef LOG_TIME_DEPENDENT_NODES}
-          if Log then
-            WritelnLog(Format('Time-dependent node %s', [Node.NiceName]), 'Next cycle (of a looping sensor)');
+          WritelnLog(Format('Time-dependent node %s', [Node.NiceName]), 'Next cycle (of a looping sensor)');
           {$endif}
         end;
       end else
@@ -577,8 +606,7 @@ var
       if (not FdLoop.Value) and StopOnNonLoopedEnd then
       begin
         {$ifdef LOG_TIME_DEPENDENT_NODES}
-        if Log then
-          WritelnLog(Format('Time-dependent node %s', [Node.NiceName]), 'Stopping (because end of cycle of non-looping sensor)');
+        WritelnLog(Format('Time-dependent node %s', [Node.NiceName]), 'Stopping (because end of cycle of non-looping sensor)');
         {$endif}
 
         NewIsActive := false;
@@ -594,15 +622,14 @@ begin
   Assert((not ResetTime) or (TimeIncrease = 0));
 
   {$ifdef LOG_TIME_DEPENDENT_NODES_OFTEN}
-  if Log then
-    WritelnLog(Format('Time-dependent node %s', [Node.NiceName]), Format('Time changes by +%f to %f. Cycle interval: %f, loop %s. Before: active %s, paused %s, elapsedTimeInCycle %f',
-      [ TimeIncrease, NewTime,
-        CycleInterval,
-        BoolToStr(FdLoop.Value, true),
-        BoolToStr(IsActive, true),
-        BoolToStr(IsPaused, true),
-        FElapsedTimeInCycle
-      ]));
+  WritelnLog(Format('Time-dependent node %s', [Node.NiceName]), Format('Time changes by +%f to %f. Cycle interval: %f, loop %s. Before: active %s, paused %s, elapsedTimeInCycle %f',
+    [ TimeIncrease, NewTime,
+      CycleInterval,
+      BoolToStr(FdLoop.Value, true),
+      BoolToStr(IsActive, true),
+      BoolToStr(IsPaused, true),
+      FElapsedTimeInCycle
+    ]));
   {$endif}
 
   Result := false;
@@ -683,9 +710,8 @@ begin
            ) then
     begin
       {$ifdef LOG_TIME_DEPENDENT_NODES}
-      if Log then
-        WritelnLog(Format('Time-dependent node %s', [Node.NiceName]), 'Starting. Time now %f, start time %f, cycle interval %f',
-          [NewTime, FdStartTime.Value, CycleInterval]);
+      WritelnLog(Format('Time-dependent node %s', [Node.NiceName]), 'Starting. Time now %f, start time %f, cycle interval %f',
+        [NewTime, FdStartTime.Value, CycleInterval]);
       {$endif}
 
       StartTimeUsed := FdStartTime.Value; // save, to later used for NonLoopedStopped
@@ -728,8 +754,7 @@ begin
        (FdResumeTime.Value > FdPauseTime.Value) then
     begin
       {$ifdef LOG_TIME_DEPENDENT_NODES}
-      if Log then
-        WritelnLog(Format('Time-dependent node %s', [Node.NiceName]), 'Resuming');
+      WritelnLog(Format('Time-dependent node %s', [Node.NiceName]), 'Resuming');
       {$endif}
 
       NewIsPaused := false;
@@ -751,8 +776,7 @@ begin
         IncreaseElapsedTime(TimeIncrease - (NewTime - FdStopTime.Value), false);
 
       {$ifdef LOG_TIME_DEPENDENT_NODES}
-      if Log then
-        WritelnLog(Format('Time-dependent node %s', [Node.NiceName]), 'Stopped (because stopTime reached)');
+      WritelnLog(Format('Time-dependent node %s', [Node.NiceName]), 'Stopped (because stopTime reached)');
       {$endif}
     end else
     if (NewTime >= FdPauseTime.Value) and
@@ -764,8 +788,7 @@ begin
         IncreaseElapsedTime(TimeIncrease - (NewTime - FdPauseTime.Value), false);
 
       {$ifdef LOG_TIME_DEPENDENT_NODES}
-      if Log then
-        WritelnLog(Format('Time-dependent node %s', [Node.NiceName]), 'Paused');
+      WritelnLog(Format('Time-dependent node %s', [Node.NiceName]), 'Paused');
       {$endif}
     end else
     begin
@@ -801,7 +824,7 @@ begin
     end;
 
     if CycleTimeSend and (EventCycleTime <> nil) then
-      EventCycleTime.Send(CycleTime, Node.Scene.NextEventTime);
+      EventCycleTime.Send(CycleTime, Node.Scene.NextEventTime, PartialSend);
   end else
   begin
     if not NewIsPaused then
@@ -830,12 +853,11 @@ begin
   }
 
   {$ifdef LOG_TIME_DEPENDENT_NODES_OFTEN}
-  if Log then
-    WritelnLog(Format('Time-dependent node %s', [Node.NiceName]), Format('SetTime finished. Active %s, paused %s, elapsedTimeInCycle %f',
-      [ BoolToStr(IsActive, true),
-        BoolToStr(IsPaused, true),
-        FElapsedTimeInCycle
-      ]));
+  WritelnLog(Format('Time-dependent node %s', [Node.NiceName]), Format('SetTime finished. Active %s, paused %s, elapsedTimeInCycle %f',
+    [ BoolToStr(IsActive, true),
+      BoolToStr(IsPaused, true),
+      FElapsedTimeInCycle
+    ]));
   {$endif}
 end;
 
@@ -956,6 +978,9 @@ begin
   FFdEnabled := TSFBool.Create(Self, true, 'enabled', true);
   AddField(FFdEnabled);
 
+  FFdDetectAffectedFields := TSFBool.Create(Self, false, 'detectAffectedFields', true);
+  AddField(FFdDetectAffectedFields);
+
   FFdFractionIncreasing := TSFBool.Create(Self, true, 'fractionIncreasing', true);
   AddField(FFdFractionIncreasing);
 
@@ -965,7 +990,7 @@ begin
   InternalTimeDependentHandler.FdEnabled := FdEnabled;
   InternalTimeDependentHandler.EventCycleTime := EventCycleTime;
 
-  { On receiving new elapsedTime, we send other continous events. }
+  { On receiving new elapsedTime, we send other continuous events. }
   EventElapsedTime.AddNotification({$ifdef CASTLE_OBJFPC}@{$endif} EventElapsedTimeReceive);
 end;
 
@@ -984,13 +1009,6 @@ begin
   Result := 'TimeSensor';
 end;
 
-class function TTimeSensorNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
 procedure TTimeSensorNode.EventElapsedTimeReceive(
   Event: TX3DEvent; Value: TX3DField; const Time: TX3DTime);
 var
@@ -1002,9 +1020,9 @@ begin
     if (Fraction = 0) and (Time.Seconds > FdStartTime.Value) then Fraction := 1;
     if not FdFractionIncreasing.Value then
       Fraction := 1 - Fraction;
-    Eventfraction_changed.Send(Fraction, Time);
+    Eventfraction_changed.Send(Fraction, Time, Value.InternalPartialSend);
 
-    EventTime.Send(Time.Seconds, Time);
+    EventTime.Send(Time.Seconds, Time, Value.InternalPartialSend);
   end;
 end;
 
@@ -1012,7 +1030,8 @@ var
   FakeX3DTime: TX3DTime;
 
 procedure TTimeSensorNode.FakeTime(const TimeInAnimation: TFloatTime;
-  const ALoop, AFractionIncreasing: boolean);
+  const ALoop, AFractionIncreasing: boolean;
+  const PartialSend: TPartialSend);
 begin
   { This method may be called with any TimeInAnimation values sequence,
     e.g. decreasing.
@@ -1028,17 +1047,18 @@ begin
     FakeX3DTime.PlusTicks := 0;
   end;
 
-  FakeTime(TimeInAnimation, ALoop, AFractionIncreasing, FakeX3DTime);
+  FakeTime(TimeInAnimation, ALoop, AFractionIncreasing, FakeX3DTime, PartialSend);
 end;
 
 procedure TTimeSensorNode.FakeTime(const TimeInAnimation: TFloatTime;
   const ALoop, AFractionIncreasing: boolean;
-  const TimeOfEvents: TX3DTime);
+  const TimeOfEvents: TX3DTime;
+  const PartialSend: TPartialSend);
 var
   Fraction: Single;
 begin
   Inc(FakingTime);
-  EventIsActive.Send(true, TimeOfEvents);
+  EventIsActive.Send(true, TimeOfEvents, PartialSend);
 
   if ALoop then
     Fraction := Frac(TimeInAnimation / SafeCycleInterval)
@@ -1046,11 +1066,86 @@ begin
     Fraction := Clamped(TimeInAnimation / SafeCycleInterval, 0, 1);
   if not AFractionIncreasing then
     Fraction := 1 - Fraction;
-  EventFraction_changed.Send(Fraction, TimeOfEvents);
+  EventFraction_changed.Send(Fraction, TimeOfEvents, PartialSend);
 
-  EventElapsedTime.Send(TimeInAnimation, TimeOfEvents);
-  EventTime.Send(TimeInAnimation, TimeOfEvents);
+  EventElapsedTime.Send(TimeInAnimation, TimeOfEvents, PartialSend);
+  EventTime.Send(TimeInAnimation, TimeOfEvents, PartialSend);
   Dec(FakingTime);
+end;
+
+procedure TTimeSensorNode.Stop;
+begin
+  { We want to stop time sensor from sending any further
+    elapsedTime events (elapsedTime causes also fraction_changed).
+    Sending of further elapsedTime means that two animations try to play
+    at the same time, and modify the same transforms.
+
+    One way to stop animation is to set
+
+      PlayingAnimationNode.StopTime := Time;
+
+    While it works in practice (no reproducible bug with it found),
+    it has 2 problems:
+
+    - There will be 1 additional frame when TimeSensor "finishes of"
+      the animation, by remaining "TimeIncrease - (NewTime - FdStopTime.Value)"
+      duration. This isn't a problem in practice, since it only happens for 1 frame
+      (then the old TimeSensor becomes inactive), but it stil feels dirty/wasteful.
+
+    - In case you will move time backwards, e.g. by ResetTime or ResetTimeAtLoad,
+      you may get into trouble.
+      You may accidentally activate a time sensor that is
+      inactive now, but was active long time ago.
+
+    To overcome the 2nd problem, we tried the trick below.
+    It will work assuming you never reset time to something < 1.
+    (If you do reset time to something very small, then typical TimeSensors will
+    have problems anyway,
+    see https://castle-engine.io/x3d_time_origin_considered_uncomfortable.php ).
+
+      PlayingAnimationNode.StartTime := 0;
+      PlayingAnimationNode.StopTime := 1;
+      PlayingAnimationNode.Loop := false;
+
+    But this:
+    - Still has the "1 additional frame when TimeSensor finishes of" dirtyness.
+    - Also, setting startTime while time-dependent node is active is ignored,
+      X3D spec requires this, see our TSFTimeIgnoreWhenActive implementation.
+      (bug reproduction: escape_universe, meteorite_1 dying).
+      Although we remove this problem by NeverIgnore hack.
+    - (Obsolete argument:) Also, it's bad to unconditionally set "Loop" value.
+      If user is using paDefault for animation, (s)he expects
+      that PlayAnimation doesn't change it ever.
+
+    So it's simpest and reliable to just set enabled=false on old TimeSensor.
+    TInternalTimeDependentHandler.SetTime then guarantees it will immediately stop
+    sending elapsedTime events. }
+
+  Enabled := false;
+end;
+
+procedure TTimeSensorNode.Start(const ALoop, AFractionIncreasing: Boolean;
+  const InitialTime: TFloatTime);
+begin
+  Check(Scene <> nil, 'TTimeSensorNode.Start can only be called when node is part of scene');
+
+  Loop := ALoop;
+  FractionIncreasing := AFractionIncreasing;
+  Enabled := true; // since Stop changes Enabled to false
+
+  { Disable the "ignore" mechanism, otherwise
+    setting startTime on a running TimeSensor would be ignored.
+    Testcase: e.g. mana animation on dark_dragon and dragon_squash. }
+  Inc(FdStopTime.NeverIgnore);
+  Inc(FdStartTime.NeverIgnore);
+
+  { Assign StopTime and StartTime. }
+  StopTime := 0;
+  StartTime := Scene.Time - InitialTime;
+
+  { Enable the "ignore" mechanism again, to follow X3D spec. }
+  Dec(FdStopTime.NeverIgnore);
+  Dec(FdStartTime.NeverIgnore);
 end;
 
 procedure RegisterTimeNodes;

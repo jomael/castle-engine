@@ -29,7 +29,19 @@ uses
   { Testing (mainly) things inside FPC standard library, not CGE }
   TestCompiler,
   TestSysUtils,
+  { For some reason, testing FGL with FPC 3.3.1 fails with:
+
+      Marked memory at $00007F65B6276C60 invalid
+      Wrong signature $2071BAA5 instead of 243D6DCB
+        $00000000004CB2C0
+
+      FPC rev 40000, Linux/x86_64.
+      Also: FPC rev 41505, Windows/x86_64.
+      Once the backtrace pointed to DEREF,  line 1028 of fgl.pp .
+  }
+  {$ifdef VER3_0}
   TestFGL,
+  {$endif}
   TestGenericsCollections,
   TestOldFPCBugs,
   TestFPImage,
@@ -44,13 +56,16 @@ uses
   TestCastleVectors,
   TestCastleTriangles,
   TestCastleColors,
+  TestCastleQuaternions,
   TestCastleKeysMouse,
   TestCastleImages,
   TestCastleImagesDraw,
   TestCastleBoxes,
   TestCastleFrustum,
+  TestCastleFonts,
   TestCastleTransform,
   TestCastleParameters,
+  TestCastleUIControls,
   TestCastleCameras,
   TestX3DFields,
   TestX3DNodes,
@@ -74,12 +89,15 @@ uses
   TestCastleTimeUtils,
   TestCastleControls,
   TestCastleRandom,
-  TestCastleSoundEngine
+  TestCastleSoundEngine,
+  TestCastleComponentSerialize,
+  TestX3DLoadInternalUtils,
+  TestCastleLevels,
+  TestCastleDownload
 
   {$ifdef TEXT_RUNNER} {$ifndef NO_WINDOW_SYSTEM},
   TestCastleWindow,
   TestCastleOpeningAndRendering3D,
-  TestCastleFonts,
   TestCastleWindowOpen
   {$endif} {$endif}
 
@@ -96,6 +114,8 @@ var
 {var
   T: TTestCastleTransform;}
 begin
+  // InitializeLog;
+
   ApplicationProperties.OnWarning.Add(@ApplicationProperties.WriteWarningOnConsole);
   // avoid warnings that opening files too early
   ApplicationProperties._FileAccessSafe := true;

@@ -23,35 +23,41 @@ interface
 uses Classes,
   CastleBoxes, CastleCameras, CastleItems, CastleVectors, CastleInputs,
   CastleKeysMouse, CastleShapes, CastleMaterialProperties, CastleSoundEngine,
-  Castle3D, CastleGLUtils, CastleColors, CastleFrustum, CastleTriangles,
-  CastleTimeUtils, CastleScene, CastleDebugTransform, X3DNodes, CastleTransform;
+  CastleTransformExtra, CastleGLUtils, CastleColors, CastleFrustum, CastleTriangles,
+  CastleTimeUtils, CastleScene, CastleDebugTransform, X3DNodes, CastleTransform,
+  CastleResources;
 
 type
-  TPlayerSwimming = (psNo,
-    { Player is floating on the water.
-      Not falling down, but also not drowning.
-      This means that player head is above the water surface
-      but his feet are in the water. In some sense he/she is swimming,
-      in some not. }
+  TPlayerSwimming = (
+    { Not swimming. }
+    psNo,
+
+    { Swimming on the water surface.
+      Conceptually, avatar is submerged in water, but has head above the water. }
     psAboveWater,
-    psUnderWater);
+
+    { Swimming under the water surface.
+      Conpeptually, avatar is fully submerged in water, and may have trouble
+      breathing. Games may simulate lack of oxygen, drowning etc. in this case. }
+    psUnderWater
+  );
 
   { Player, 3D object controlling the camera, main enemy of hostile creatures,
     carries a backpack, may cause fadeout effects on screen and such.
 
     Note that you can operate on player even before level is loaded,
-    before TCastleSceneManager and such are initialized.
+    before TLevel or TCastleViewport are initialized.
     This allows to create player before level is started
     (create it from scratch, or by loading from save game),
     and "carry" the same player instance across various loaded levels.
 
     @link(Dead) or @link(Blocked) player behaves much like alive and normal player.
-    For example, it still has an associated Camera that can animate by code
+    For example, it still has an associated @link(Navigation) that can be affected by physics
     (e.g. to apply physics to the dead player body,
     because player was killed when he was flying, or it's
     corpse lays on some moving object of the level --- like elevator).
-    However, Camera input shortcuts will be cleared, to prevent user from
-    directly moving the camera and player.
+    However, @link(Navigation) input shortcuts will be cleared, to prevent user from
+    directly moving the player.
 
     Do not do some stuff when player is dead:
     @unorderedList(
@@ -61,7 +67,7 @@ type
       @item No changing EquippedWeapon, no calling Attack.
     )
 
-    Note that a player has an associated and synchronized @link(Camera) instance.
+    Note that a player has an associated and synchronized @link(Navigation) instance.
   }
   TPlayer = class(TAliveWithInventory)
   private
@@ -146,20 +152,20 @@ type
       FDrownDamageConst: Single;
       FDrownDamageRandom: Single;
       FSwimSoundPause: Single;
-      FEnableCameraDragging: boolean;
+      FEnableNavigationDragging: boolean;
       FFallingEffect: boolean;
       CurrentEquippedScene: TCastleScene;
-
-      FCamera: TWalkCamera;
+      FNavigation: TCastleWalkNavigation;
+      InsideSynchronizeFromNavigation: Cardinal;
 
     procedure SetEquippedWeapon(Value: TItemWeapon);
 
-    { Update Camera properties, including inputs.
+    { Update Navigation properties, including inputs.
       Call this always when @link(Flying) or @link(Dead) or some key values
       or @link(Swimming) or @link(Blocked) change. }
-    procedure UpdateCamera;
+    procedure UpdateNavigation;
 
-    procedure CameraFall(ACamera: TWalkCamera; const FallHeight: Single);
+    procedure NavigationFall(ANavigation: TCastleWalkNavigation; const FallHeight: Single);
 
     { This sets life, just like SetLife.
       But in case of life loss, the fadeout is done with specified
@@ -175,7 +181,9 @@ type
     procedure FootstepsSoundRelease(Sender: TSound);
     procedure SetFlying(const AValue: boolean);
     procedure SetFlyingTimeOut(const AValue: TFloatTime);
-    procedure SetEnableCameraDragging(const AValue: boolean);
+    procedure SetEnableNavigationDragging(const AValue: boolean);
+    procedure SynchronizeToNavigation;
+    procedure SynchronizeFromNavigation;
   protected
     procedure SetLife(const Value: Single); override;
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
@@ -189,10 +197,11 @@ type
     procedure Fall(const FallHeight: Single); override;
     procedure ChangedTransform; override;
   public
-    { Various navigation properties that may depend on loaded level. }
-    DefaultMoveHorizontalSpeed: Single;
-    DefaultMoveVerticalSpeed: Single;
-    DefaultPreferredHeight: Single;
+    var
+      { Various navigation properties that may depend on loaded level. }
+      DefaultMoveHorizontalSpeed: Single;
+      DefaultMoveVerticalSpeed: Single;
+      DefaultPreferredHeight: Single;
 
     const
       DefaultLife = 100;
@@ -204,11 +213,17 @@ type
       DefaultDrownDamageConst = 5.0;
       DefaultDrownDamageRandom = 10.0;
       DefaultSwimSoundPause = 3.11111111;
+      { TPlayer.FallMinHeightToSound is larger than
+        TCreature.FallMinHeightToSound,
+        to avoid making "fall" sound when player merely jumps or walks down a steep
+        hill. No such need for creature. }
+      DefaultFallMinHeightToSound = 4.0;
+      DefaultFallSoundName = 'player_fall';
 
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-    procedure PrepareResources(const Options: TPrepareResourcesOptions;
-      const ProgressStep: boolean; const Params: TPrepareParams); override;
+    procedure Render(const Params: TRenderParams); override;
+    function Press(const Event: TInputPressRelease): Boolean; override;
 
     { Flying.
       How it interacts with FlyingTimeout: Setting this property
@@ -282,9 +297,8 @@ type
     { @noAutoLinkHere }
     procedure Attack; virtual;
 
-    { You should set this property as appropriate.
-      This object will just use this property (changing it's @link(Camera)
-      properties etc.). }
+    { TLevel sets this property automatically, based on the water volume.
+      @exclude }
     property Swimming: TPlayerSwimming read FSwimming write SetSwimming;
 
     { Load various player properties from an XML file.
@@ -294,7 +308,7 @@ type
       by simply editing an XML file (instead of hacking code).
 
       Overloaded parameterless version reads from file
-      @code(ApplicationData('player.xml')).
+      @code('castle-data:/player.xml').
 
       Note that the indicated file may not exist, and it will not cause errors.
       Not existing file is equivalent to a file with everything set at default
@@ -350,8 +364,8 @@ type
 
     { Disables changing the camera by user.
       It's useful when you want to temporarily force camera to some specific
-      setting (you can even use handy Player.Camera.AnimateTo method
-      to do this easily, see TWalkCamera.AnimateTo). }
+      setting (you can even use handy Player.Navigation.AnimateTo method
+      to do this easily, see TCastleWalkNavigation.AnimateTo). }
     property Blocked: boolean read FBlocked write FBlocked;
 
     { Render 3D children (like EquippedWeapon) on top of everything else. }
@@ -359,7 +373,7 @@ type
       default DefaultRenderOnTop;
 
     property FallMinHeightToSound: Single
-      read FFallMinHeightToSound write FFallMinHeightToSound default DefaultPlayerFallMinHeightToSound;
+      read FFallMinHeightToSound write FFallMinHeightToSound default DefaultFallMinHeightToSound;
     property FallMinHeightToDamage: Single
       read FFallMinHeightToDamage write FFallMinHeightToDamage default DefaultFallMinHeightToDamage;
     property FallDamageScaleMin: Single
@@ -371,16 +385,16 @@ type
     property FallSound: TSoundType
       read FFallSound write FFallSound;
     { Controls head bobbing, but only when player is walking.
-      See TWalkCamera.HeadBobbing for exact meaning of this.
-      TPlayer.Camera.HeadBobbing is automatically updated as necessary.
+      See TCastleWalkNavigation.HeadBobbing for exact meaning of this.
+      TPlayer.Navigation.HeadBobbing is automatically updated as necessary.
 
       Note that when using CastleLevels, then the headBobbing defined
       inside VRML/X3D file (see
-      http://castle-engine.sourceforge.net/x3d_extensions.php#section_ext_head_bobbing )
-      is ignored. Instead, Player properties control TWalkCamera.HeadBobbing
-      and TWalkCamera.HeadBobbingTime. }
+      https://castle-engine.io/x3d_extensions.php#section_ext_head_bobbing )
+      is ignored. Instead, Player properties control TCastleWalkNavigation.HeadBobbing
+      and TCastleWalkNavigation.HeadBobbingTime. }
     property HeadBobbing: Single
-      read FHeadBobbing write FHeadBobbing default TWalkCamera.DefaultHeadBobbing;
+      read FHeadBobbing write FHeadBobbing default TCastleWalkNavigation.DefaultHeadBobbing;
 
     { How many seconds you can swin before you start to drown. }
     property SwimBreath: Single read FSwimBreath write FSwimBreath default DefaultSwimBreath;
@@ -397,40 +411,44 @@ type
       with SwimDrownPause. }
     property SwimSoundPause: Single read FSwimSoundPause write FSwimSoundPause default DefaultSwimSoundPause;
 
-    { Enable camera falling down effect due to gravity.
-      This indirectly controls @link(TWalkCamera.FallingEffect)
+    { Enable navigation falling down effect due to gravity.
+      This indirectly controls @link(TCastleWalkNavigation.FallingEffect)
       underneath.
 
-      Note: do not set @code(Camera.FallingEffect), as it will
+      Note: do not set @code(Navigation.FallingEffect), as it will
       be overridden in our update. Use only this property to turn on/off
       the effect. }
     property FallingEffect: boolean
       read FFallingEffect write FFallingEffect default true;
 
-    { Camera synchronized with this player instance.
+    { Navigation synchronized with this player instance.
 
-      You can use this camera as @link(TCastleAbstractViewport.Camera)
+      You can use this navigation as @link(TCastleViewport.Navigation)
       to allow user to directly control this player in first-person game.
-      @link(TGameSceneManager.LoadLevel) sets this automatically.
+      @link(TLevel.Load) sets this automatically.
 
-      The view vectors (position, direction and up), @link(TWalkCamera.Gravity),
-      and various camera inputs are automatically adjusted based on the current
+      The view vectors (position, direction and up), @link(TCastleWalkNavigation.Gravity),
+      and various navigation inputs are automatically adjusted based on the current
       player state (@link(Dead), @link(Blocked)) and global PlayerInput_Xxx
       values, like @link(PlayerInput_Forward).
-      The outside code may still directly access and change some camera
-      properties like TWalkCamera.PreferredHeight,
-      TWalkCamera.RotationHorizontalSpeed
-      TWalkCamera.RotationVerticalSpeed. In fact, it's Ok to call
-      TWalkCamera.Init. }
-    property Camera: TWalkCamera read FCamera;
-  published
+      The outside code may still directly access and change some navigation
+      properties like TCastleWalkNavigation.PreferredHeight,
+      TCastleWalkNavigation.RotationHorizontalSpeed
+      TCastleWalkNavigation.RotationVerticalSpeed. In fact, it's Ok to call
+      TCastleWalkNavigation.Init. }
+    property Navigation: TCastleWalkNavigation read FNavigation;
+    property Camera: TCastleWalkNavigation read FNavigation; deprecated 'use Navigation';
+
     property KnockBackSpeed default DefaultPlayerKnockBackSpeed;
 
-    { Enable camera navigation by dragging. This results in including
-      ciMouseDragging in TCamera.Input (when player is not
+    { Enable navigation by dragging. This results in including
+      niMouseDragging in TCastleNavigation.Input (when player is not
       @link(Dead) or @link(Blocked)). }
+    property EnableNavigationDragging: boolean
+      read FEnableNavigationDragging write SetEnableNavigationDragging default true;
     property EnableCameraDragging: boolean
-      read FEnableCameraDragging write SetEnableCameraDragging default true;
+      read FEnableNavigationDragging write SetEnableNavigationDragging default true;
+      deprecated 'use EnableNavigationDragging';
 
     { Show the debug bounding box of the player.
       Warning: It looks a little confusing (since it's a box around camera). }
@@ -446,6 +464,8 @@ var
   AutoOpenInventory: boolean = DefaultAutoOpenInventory;
 
 var
+  { Player inputs that handle navigation.
+    @groupBegin }
   PlayerInput_Forward: TInputShortcut;
   PlayerInput_Backward: TInputShortcut;
   PlayerInput_LeftRot: TInputShortcut;
@@ -457,13 +477,25 @@ var
   PlayerInput_GravityUp: TInputShortcut;
   PlayerInput_Jump: TInputShortcut;
   PlayerInput_Crouch: TInputShortcut;
+  { @groupEnd }
+
+  { Player inputs that deal with items.
+    @groupBegin }
+  PlayerInput_Attack: TInputShortcut;
+  PlayerInput_InventoryShow: TInputShortcut; //< No key/mouse associated by default.
+  PlayerInput_InventoryPrevious: TInputShortcut;
+  PlayerInput_InventoryNext: TInputShortcut;
+  PlayerInput_UseItem: TInputShortcut;
+  PlayerInput_DropItem: TInputShortcut; //< No key/mouse associated by default.
+  PlayerInput_CancelFlying: TInputShortcut; //< No key/mouse associated by default.
+  { @groupEnd }
 
 implementation
 
 uses Math, SysUtils, CastleClassUtils, CastleUtils, CastleControls,
-  CastleImages, CastleFilesUtils, CastleUIControls,
+  CastleImages, CastleFilesUtils, CastleUIControls, CastleLog,
   CastleGLBoxes, CastleGameNotifications, CastleXMLConfig,
-  CastleGLImages, CastleConfig, CastleResources, CastleRenderingCamera;
+  CastleGLImages, CastleConfig;
 
 { TPlayer.TBox ----------------------------------------------------------------- }
 
@@ -494,20 +526,20 @@ end;
 procedure TPlayer.TBox.UpdateBox;
 var
   B: TBox3D;
-  Camera: TWalkCamera;
+  Navigation: TCastleWalkNavigation;
 begin
-  Camera := TPlayer(Owner).Camera;
+  Navigation := TPlayer(Owner).Navigation;
 
-  B.Data[0].Data[0] := -Camera.Radius;
-  B.Data[0].Data[1] := -Camera.Radius;
-  B.Data[0].Data[2] := -Camera.Radius;
+  B.Data[0].Data[0] := -Navigation.Radius;
+  B.Data[0].Data[1] := -Navigation.Radius;
+  B.Data[0].Data[2] := -Navigation.Radius;
 
   if World <> nil then
-    B.Data[0].Data[World.GravityCoordinate] := -Camera.RealPreferredHeight;
+    B.Data[0].Data[World.GravityCoordinate] := -Navigation.RealPreferredHeight;
 
-  B.Data[1].Data[0] := Camera.Radius;
-  B.Data[1].Data[1] := Camera.Radius;
-  B.Data[1].Data[2] := Camera.Radius;
+  B.Data[1].Data[0] := Navigation.Radius;
+  B.Data[1].Data[1] := Navigation.Radius;
+  B.Data[1].Data[2] := Navigation.Radius;
 
   { We adjust TransformNode.Scale, not Box.Size, because this is faster:
     no need to rebuild box proxy. }
@@ -527,11 +559,11 @@ begin
   DefaultMoveVerticalSpeed := 1.0;
   DefaultPreferredHeight := 0.0;
   RenderOnTop := DefaultRenderOnTop;
-  FFallMinHeightToSound := DefaultPlayerFallMinHeightToSound;
+  FFallMinHeightToSound := DefaultFallMinHeightToSound;
   FFallMinHeightToDamage := DefaultFallMinHeightToDamage;
   FFallDamageScaleMin := DefaultFallDamageScaleMin;
   FFallDamageScaleMax := DefaultFallDamageScaleMax;
-  FFallSound := SoundEngine.SoundFromName(DefaultPlayerFallSoundName, false);
+  FFallSound := SoundEngine.SoundFromName(DefaultFallSoundName, false);
   KnockBackSpeed := DefaultPlayerKnockBackSpeed;
   FSickProjectionSpeed := DefaultSickProjectionSpeed;
   FSwimBreath := DefaultSwimBreath;
@@ -540,26 +572,26 @@ begin
   FDrownDamageRandom := DefaultDrownDamageRandom;
   FSwimSoundPause := DefaultSwimSoundPause;
   FFallingEffect := true;
-  FEnableCameraDragging := true;
-  FCamera := TWalkCamera.Create(nil);
+  FEnableNavigationDragging := true;
+  FNavigation := TCastleWalkNavigation.Create(nil);
 
   FInventoryCurrentItem := -1;
 
   { turn off keys that are totally unavailable for the player }
-  Camera.Input_MoveSpeedInc.MakeClear;
-  Camera.Input_MoveSpeedDec.MakeClear;
-  Camera.Input_IncreasePreferredHeight.MakeClear;
-  Camera.Input_DecreasePreferredHeight.MakeClear;
+  Navigation.Input_MoveSpeedInc.MakeClear;
+  Navigation.Input_MoveSpeedDec.MakeClear;
+  Navigation.Input_IncreasePreferredHeight.MakeClear;
+  Navigation.Input_DecreasePreferredHeight.MakeClear;
 
-  Camera.CheckModsDown := false;
-  Camera.OnFall := @CameraFall;
+  Navigation.CheckModsDown := false;
+  Navigation.OnFall := @NavigationFall;
 
   { Although it will be called in every OnUpdate anyway,
     we also call it here to be sure that right after TPlayer constructor
-    finished, Camera has already good values. }
-  UpdateCamera;
+    finished, Navigation has already good values. }
+  UpdateNavigation;
 
-  // once Camera is initialized, initialize TBox
+  // once Navigation is initialized, initialize TBox
   FBox := TBox.Create(Self);
   Add(FBox);
 
@@ -580,7 +612,7 @@ begin
   if SwimmingSound <> nil then
     SwimmingSound.Release;
 
-  FreeAndNil(FCamera);
+  FreeAndNil(FNavigation);
   inherited;
 end;
 
@@ -727,156 +759,167 @@ begin
   end;
 end;
 
+procedure TPlayer.SynchronizeToNavigation;
+var
+  P, D, U: TVector3;
+begin
+  // avoid recursive calls between SynchronizeToNavigation and SynchronizeFromNavigation
+  if InsideSynchronizeFromNavigation <> 0 then Exit;
+
+  // synchronize Position, Direction, Up *to* Navigation
+  try
+    GetView(P, D, U);
+    Navigation.Camera.SetView(P, D, U);
+  except
+    on EViewportNotAssigned do
+      WritelnWarning('Changing TCastlePlayer transformation (like position) before the TCastlePlayer.Navigation is assigned as TCastleViewport.Navigation is ignored');
+  end;
+end;
+
+procedure TPlayer.SynchronizeFromNavigation;
+var
+  P, D, U: TVector3;
+begin
+  // synchronize Position, Direction, Up *from* Navigation
+  try
+    Navigation.Camera.GetView(P, D, U);
+    Inc(InsideSynchronizeFromNavigation);
+    SetView(P, D, U);
+    Dec(InsideSynchronizeFromNavigation);
+  except
+    on EViewportNotAssigned do
+      WritelnWarning('Adjusting TCastlePlayer transformation (like position) in PrepareResources is aborted if TCastleViewport.Navigation is not yet associated with TCastlePlayer.Navigation');
+  end;
+end;
+
 procedure TPlayer.ChangedTransform;
-var
-  P, D, U: TVector3;
 begin
   inherited;
-
-  // synchronize Position, Direction, Up *to* Camera
-  GetView(P, D, U);
-  Camera.SetView(P, D, U);
+  { If something called Player.Translation := xxx, update Navigation }
+  SynchronizeToNavigation;
 end;
 
-procedure TPlayer.PrepareResources(const Options: TPrepareResourcesOptions;
-  const ProgressStep: boolean; const Params: TPrepareParams);
+procedure TPlayer.UpdateNavigation;
 var
-  P, D, U: TVector3;
+  NormalNavigationInput: TNavigationInputs;
 begin
-  inherited;
-
-  { Synchronize Position, Direction, Up *from* Camera.
-
-    Do this before rendering (not in TPlayer.UpdateCamera)
-    makes the player's weapon always correctly rendered, without any delay.
-    (Testcase: move/rotate using touch control
-    in fps_game when you have shooting_eye.) }
-
-  Camera.GetView(P, D, U);
-  SetView(P, D, U);
-end;
-
-procedure TPlayer.UpdateCamera;
-var
-  NormalCameraInput: TCameraInputs;
-begin
-  Camera.Gravity := (not Blocked) and (not Flying);
-  { Note that when not Camera.Gravity then FallingEffect will not
+  Navigation.Gravity := (not Blocked) and (not Flying);
+  { Note that when not Navigation.Gravity then FallingEffect will not
     work anyway. }
-  Camera.FallingEffect := FallingEffect and (Swimming = psNo);
+  Navigation.FallingEffect := FallingEffect and (FSwimming = psNo);
 
   if Blocked then
   begin
-    { When Blocked, we navigate camera by code. }
-    Camera.Input := [];
+    { When Blocked, we navigate navigation by code. }
+    Navigation.Input := [];
   end else
   begin
-    NormalCameraInput := [ciNormal, ci3dMouse];
-    if EnableCameraDragging and not Dead then
-      Include(NormalCameraInput, ciMouseDragging);
+    NormalNavigationInput := [niNormal, ni3dMouse];
+    if EnableNavigationDragging and not Dead then
+      Include(NormalNavigationInput, niMouseDragging);
 
-    Camera.Input := NormalCameraInput;
+    Navigation.Input := NormalNavigationInput;
 
     { Rotation keys work always, even when player is dead.
       Initially I disabled them, but after some thought:
       let them work. They work a little strangely (because Up
       is orthogonal to GravityUp), but they still work and player
       can figure it out. }
-    Camera.Input_LeftRot.Assign(PlayerInput_LeftRot, false);
-    Camera.Input_RightRot.Assign(PlayerInput_RightRot, false);
-    Camera.Input_UpRotate.Assign(PlayerInput_UpRotate, false);
-    Camera.Input_DownRotate.Assign(PlayerInput_DownRotate, false);
-    Camera.Input_GravityUp.Assign(PlayerInput_GravityUp, false);
+    Navigation.Input_LeftRot.Assign(PlayerInput_LeftRot, false);
+    Navigation.Input_RightRot.Assign(PlayerInput_RightRot, false);
+    Navigation.Input_UpRotate.Assign(PlayerInput_UpRotate, false);
+    Navigation.Input_DownRotate.Assign(PlayerInput_DownRotate, false);
+    Navigation.Input_GravityUp.Assign(PlayerInput_GravityUp, false);
   end;
 
   if Blocked then
   begin
     { PreferGravityUpXxx should be ignored actually, because rotations
       don't work now. }
-    Camera.PreferGravityUpForMoving := true;
-    Camera.PreferGravityUpForRotations := false;
+    Navigation.PreferGravityUpForMoving := true;
+    Navigation.PreferGravityUpForRotations := false;
 
     { No need to do MakeClear now on any inputs, as we already set
       Input := []. }
 
-    Camera.FallSpeedStart := TWalkCamera.DefaultFallSpeedStart;
-    Camera.FallSpeedIncrease := TWalkCamera.DefaultFallSpeedIncrease;
-    Camera.HeadBobbing := 0.0;
-    Camera.PreferredHeight := Camera.Radius * 1.01;
+    Navigation.FallSpeedStart := TCastleWalkNavigation.DefaultFallSpeedStart;
+    Navigation.FallSpeedIncrease := TCastleWalkNavigation.DefaultFallSpeedIncrease;
+    Navigation.HeadBobbing := 0.0;
+    Navigation.PreferredHeight := Navigation.Radius * 1.01;
 
-    Camera.MoveHorizontalSpeed := DefaultMoveHorizontalSpeed;
-    Camera.MoveVerticalSpeed := DefaultMoveVerticalSpeed;
+    Navigation.MoveHorizontalSpeed := DefaultMoveHorizontalSpeed;
+    Navigation.MoveVerticalSpeed := DefaultMoveVerticalSpeed;
   end else
   if Dead then
   begin
-    Camera.PreferGravityUpForMoving := true;
+    Navigation.PreferGravityUpForMoving := true;
     { This is the only case when PreferGravityUpForRotations := false
       is sensible. }
-    Camera.PreferGravityUpForRotations := false;
+    Navigation.PreferGravityUpForRotations := false;
 
-    Camera.Input_Jump.MakeClear;
-    Camera.Input_Crouch.MakeClear;
+    Navigation.Input_Jump.MakeClear;
+    Navigation.Input_Crouch.MakeClear;
 
-    Camera.Input_Forward.MakeClear;
-    Camera.Input_Backward.MakeClear;
-    Camera.Input_LeftStrafe.MakeClear;
-    Camera.Input_RightStrafe.MakeClear;
+    Navigation.Input_Forward.MakeClear;
+    Navigation.Input_Backward.MakeClear;
+    Navigation.Input_LeftStrafe.MakeClear;
+    Navigation.Input_RightStrafe.MakeClear;
 
-    Camera.FallSpeedStart := TWalkCamera.DefaultFallSpeedStart;
-    Camera.FallSpeedIncrease := TWalkCamera.DefaultFallSpeedIncrease;
-    Camera.HeadBobbing := 0.0;
-    Camera.PreferredHeight := Camera.Radius * 1.01;
+    Navigation.FallSpeedStart := TCastleWalkNavigation.DefaultFallSpeedStart;
+    Navigation.FallSpeedIncrease := TCastleWalkNavigation.DefaultFallSpeedIncrease;
+    Navigation.HeadBobbing := 0.0;
+    Navigation.PreferredHeight := Navigation.Radius * 1.01;
 
-    Camera.MoveHorizontalSpeed := DefaultMoveHorizontalSpeed;
-    Camera.MoveVerticalSpeed := DefaultMoveVerticalSpeed;
+    Navigation.MoveHorizontalSpeed := DefaultMoveHorizontalSpeed;
+    Navigation.MoveVerticalSpeed := DefaultMoveVerticalSpeed;
   end else
   begin
     if Flying then
     begin
-      Camera.PreferGravityUpForMoving := false;
-      Camera.PreferGravityUpForRotations := true;
+      Navigation.PreferGravityUpForMoving := false;
+      Navigation.PreferGravityUpForRotations := true;
 
-      { Camera.HeadBobbing and
-        Camera.PreferredHeight and
-        Camera.FallSpeedStart and
-        Camera.FallSpeedIncrease
+      { Navigation.HeadBobbing and
+        Navigation.PreferredHeight and
+        Navigation.FallSpeedStart and
+        Navigation.FallSpeedIncrease
         ... don't matter here, because Gravity is false. }
 
-      Camera.MoveHorizontalSpeed := DefaultMoveHorizontalSpeed;
-      Camera.MoveVerticalSpeed := DefaultMoveVerticalSpeed;
+      Navigation.MoveHorizontalSpeed := DefaultMoveHorizontalSpeed;
+      Navigation.MoveVerticalSpeed := DefaultMoveVerticalSpeed;
     end else
-    if Swimming <> psNo then
+    if FSwimming <> psNo then
     begin
-      Camera.PreferGravityUpForMoving := false;
-      Camera.PreferGravityUpForRotations := true;
+      Navigation.PreferGravityUpForMoving := false;
+      Navigation.PreferGravityUpForRotations := true;
 
-      Camera.FallSpeedStart := TWalkCamera.DefaultFallSpeedStart / 6;
-      Camera.FallSpeedIncrease := 1.0;
-      Camera.HeadBobbing := 0.0;
-      Camera.PreferredHeight := Camera.Radius * 1.01;
+      Navigation.FallSpeedStart := TCastleWalkNavigation.DefaultFallSpeedStart / 6;
+      Navigation.FallSpeedIncrease := 1.0;
+      Navigation.HeadBobbing := 0.0;
+      Navigation.PreferredHeight := Navigation.Radius * 1.01;
 
-      Camera.MoveHorizontalSpeed := DefaultMoveHorizontalSpeed / 2;
-      Camera.MoveVerticalSpeed := DefaultMoveVerticalSpeed / 2;
+      Navigation.MoveHorizontalSpeed := DefaultMoveHorizontalSpeed / 2;
+      Navigation.MoveVerticalSpeed := DefaultMoveVerticalSpeed / 2;
     end else
     begin
-      Camera.PreferGravityUpForMoving := true;
-      Camera.PreferGravityUpForRotations := true;
+      Navigation.PreferGravityUpForMoving := true;
+      Navigation.PreferGravityUpForRotations := true;
 
-      Camera.FallSpeedStart := TWalkCamera.DefaultFallSpeedStart;
-      Camera.FallSpeedIncrease := TWalkCamera.DefaultFallSpeedIncrease;
-      Camera.HeadBobbing := HeadBobbing;
-      Camera.PreferredHeight := DefaultPreferredHeight;
+      Navigation.FallSpeedStart := TCastleWalkNavigation.DefaultFallSpeedStart;
+      Navigation.FallSpeedIncrease := TCastleWalkNavigation.DefaultFallSpeedIncrease;
+      Navigation.HeadBobbing := HeadBobbing;
+      Navigation.PreferredHeight := DefaultPreferredHeight;
 
-      Camera.MoveHorizontalSpeed := DefaultMoveHorizontalSpeed;
-      Camera.MoveVerticalSpeed := DefaultMoveVerticalSpeed;
+      Navigation.MoveHorizontalSpeed := DefaultMoveHorizontalSpeed;
+      Navigation.MoveVerticalSpeed := DefaultMoveVerticalSpeed;
     end;
 
-    Camera.Input_Jump.Assign(PlayerInput_Jump, false);
-    Camera.Input_Crouch.Assign(PlayerInput_Crouch, false);
-    Camera.Input_Forward.Assign(PlayerInput_Forward, false);
-    Camera.Input_Backward.Assign(PlayerInput_Backward, false);
-    Camera.Input_LeftStrafe.Assign(PlayerInput_LeftStrafe, false);
-    Camera.Input_RightStrafe.Assign(PlayerInput_RightStrafe, false);
+    Navigation.Input_Jump.Assign(PlayerInput_Jump, false);
+    Navigation.Input_Crouch.Assign(PlayerInput_Crouch, false);
+    Navigation.Input_Forward.Assign(PlayerInput_Forward, false);
+    Navigation.Input_Backward.Assign(PlayerInput_Backward, false);
+    Navigation.Input_LeftStrafe.Assign(PlayerInput_LeftStrafe, false);
+    Navigation.Input_RightStrafe.Assign(PlayerInput_RightStrafe, false);
   end;
 end;
 
@@ -922,21 +965,9 @@ procedure TPlayer.Update(const SecondsPassed: Single; var RemoveMe: TRemoveType)
 
   { Perform various things related to player swimming. }
   procedure UpdateSwimming;
-  var
-    NewSwimming: TPlayerSwimming;
   begin
-    { update Swimming }
-    NewSwimming := psNo;
-    if World <> nil then
-    begin
-      if World.Water.Contains(Translation) then
-        NewSwimming := psUnderWater else
-      if World.Water.Contains(Translation - World.GravityUp * Camera.PreferredHeight) then
-        NewSwimming := psAboveWater;
-    end;
-    Swimming := NewSwimming;
-
-    if Swimming = psUnderWater then
+    { Swimming possibly was changed by TLevel update }
+    if FSwimming = psUnderWater then
     begin
       { Take care of drowning. }
       if not Dead then
@@ -979,7 +1010,7 @@ procedure TPlayer.Update(const SecondsPassed: Single; var RemoveMe: TRemoveType)
       TimeToChangeFootstepsSoundPlaying, see UpdateFootstepsSoundPlaying. }
     TimeToChangeIsOnTheGround = 0.5;
   begin
-    if Camera.IsOnTheGround then
+    if Navigation.IsOnTheGround then
     begin
       ReallyIsOnTheGroundTime := LifeTime;
       IsOnTheGround := true;
@@ -1029,29 +1060,29 @@ procedure TPlayer.Update(const SecondsPassed: Single; var RemoveMe: TRemoveType)
   begin
     { The meaning of ReallyWalkingOnTheGroundTime and
       TimeToChangeFootstepsSoundPlaying:
-      Camera.IsWalkingOnTheGround can change quite rapidly
+      Navigation.IsWalkingOnTheGround can change quite rapidly
       (when player quickly presses and releases up/down keys,
       or when he're walking up the stairs, or when he's walking
-      on un-flat terrain --- then Camera.IsWalkingOnTheGround
+      on un-flat terrain --- then Navigation.IsWalkingOnTheGround
       switches between @true and @false quite often).
       But it is undesirable to change FootstepsSoundPlaying
       so often, as this causes footsteps to suddenly stop, then play,
       then stop again etc. --- this doesn't sound good.
 
       So I use ReallyWalkingOnTheGroundTime to mark myself
-      the time when Camera.IsWalkingOnTheGround was true.
+      the time when Navigation.IsWalkingOnTheGround was true.
       In normal situation I would set NewFootstepsSoundPlaying to stNone
-      when Camera.IsWalkingOnTheGround = @false.
+      when Navigation.IsWalkingOnTheGround = @false.
       But now I set NewFootstepsSoundPlaying to stNone only if
-      Camera.IsWalkingOnTheGround = @false
+      Navigation.IsWalkingOnTheGround = @false
       for at least TimeToChangeFootstepsSoundPlaying seconds. }
 
     { calculate NewFootstepsSoundPlaying }
-    if Camera.IsWalkingOnTheGround then
+    if Navigation.IsWalkingOnTheGround then
     begin
       ReallyWalkingOnTheGroundTime := LifeTime;
-      { Since Camera.IsWalkingOnTheGroundm then for sure
-        Camera.IsOnTheGround, so UpdateIsOnTheGround updated
+      { Since Navigation.IsWalkingOnTheGroundm then for sure
+        Navigation.IsOnTheGround, so UpdateIsOnTheGround updated
         GroundProperty field. }
       if (GroundProperty <> nil) and
          (GroundProperty.FootstepsSound <> stNone) then
@@ -1118,6 +1149,8 @@ begin
   inherited;
   if not GetExists then Exit;
 
+  SynchronizeFromNavigation;
+
   UpdateCurrentEquippedScene;
 
   if FFlyingTimeOut > 0 then
@@ -1130,15 +1163,16 @@ begin
     end;
   end;
 
-  UpdateCamera;
+  UpdateNavigation;
 
   UpdateSwimming;
 
   if FFadeOutIntensity > 0 then
     FFadeOutIntensity -= FadeOutSpeed * SecondsPassed;
 
-  if EquippedWeapon <> nil then
-    EquippedWeapon.EquippedUpdate(LifeTime);
+  if (EquippedWeapon <> nil) and
+     (InternalLevel <> nil) then
+    EquippedWeapon.EquippedUpdate(InternalLevel, LifeTime);
 
   UpdateIsOnTheGround;
   UpdateToxic;
@@ -1153,7 +1187,7 @@ begin
   FFadeOutIntensity := 1;
 end;
 
-procedure TPlayer.CameraFall(ACamera: TWalkCamera; const FallHeight: Single);
+procedure TPlayer.NavigationFall(ANavigation: TCastleWalkNavigation; const FallHeight: Single);
 begin
   Fall(FallHeight);
 end;
@@ -1162,10 +1196,10 @@ procedure TPlayer.Fall(const FallHeight: Single);
 begin
   inherited;
 
-  if (Swimming = psNo) and (FallHeight > FallMinHeightToSound) then
+  if (FSwimming = psNo) and (FallHeight > FallMinHeightToSound) then
     SoundEngine.Sound(FallSound);
 
-  if (Swimming = psNo) and (FallHeight > FallMinHeightToDamage) then
+  if (FSwimming = psNo) and (FallHeight > FallMinHeightToDamage) then
     Life := Life - Max(0, FallHeight *
       MapRange(Random, 0.0, 1.0, FallDamageScaleMin, FallDamageScaleMax));
 end;
@@ -1177,7 +1211,7 @@ begin
   begin
     Notifications.Show('You die');
     SoundEngine.Sound(stPlayerDies);
-    Camera.FallOnTheGround;
+    Navigation.FallOnTheGround;
   end else
   if (Life - Value) > 1 then
   begin
@@ -1197,8 +1231,10 @@ end;
 
 procedure TPlayer.Attack;
 begin
-  if EquippedWeapon <> nil then
-    EquippedWeapon.EquippedAttack(LifeTime) else
+  if (EquippedWeapon <> nil) and
+     (InternalLevel <> nil) then
+    EquippedWeapon.EquippedAttack(InternalLevel, LifeTime)
+  else
     { TODO: allow to do some "punch" / "kick" here easily }
     Notifications.Show('No weapon equipped');
 end;
@@ -1231,34 +1267,34 @@ begin
         with the high speed (because in the air FallSpeedStart
         is high and it's increased, but in the water it's much lower
         and not increased at all right now). }
-      Camera.CancelFalling;
+      Navigation.CancelFalling;
     end;
 
     FSwimming := Value;
 
-    if Swimming = psUnderWater then
+    if FSwimming = psUnderWater then
     begin
       SwimBeginTime := LifeTime;
       SwimLastDrownTime := 0.0;
       SwimLastSoundTime := 0.0;
     end;
 
-    { Although UpdateCamera will be called in nearest Player.Update anyway,
+    { Although UpdateNavigation will be called in nearest Player.Update anyway,
       I want to call it *now*. That's because I want to set
-      Camera.FallSpeedStart to low speed (suitable for moving
+      Navigation.FallSpeedStart to low speed (suitable for moving
       under the water) before next falling down will happen.
-      Why ? See comments about Camera.CancelFalling above.
+      Why ? See comments about Navigation.CancelFalling above.
 
       And next falling down will happen... actually SetSwimming
       is called from OnMatrixChanged that may be called
       from TryFalling ! So next falling down definitely *can*
       happen before next Player.Update. Actually we may be in the middle
-      of falling down right now. Fortunately Camera.Update
-      and Camera.CancelFalling are implemented (or rather fixed :)
+      of falling down right now. Fortunately Navigation.Update
+      and Navigation.CancelFalling are implemented (or rather fixed :)
       to honour calling CancelFalling and setting FallSpeedStart now.
 
       So the safeguard below is needed. }
-    UpdateCamera;
+    UpdateNavigation;
   end;
 end;
 
@@ -1273,17 +1309,17 @@ begin
     Config.URL := URL;
 
     KnockBackSpeed := Config.GetFloat('knockback_speed', DefaultPlayerKnockBackSpeed);
-    Camera.JumpMaxHeight := Config.GetFloat('jump/max_height', TWalkCamera.DefaultJumpMaxHeight);
-    Camera.JumpHorizontalSpeedMultiply := Config.GetFloat('jump/horizontal_speed_multiply', TWalkCamera.DefaultJumpHorizontalSpeedMultiply);
-    Camera.JumpTime := Config.GetFloat('jump/time', TWalkCamera.DefaultJumpTime);
-    Camera.HeadBobbingTime := Config.GetFloat('head_bobbing_time', TWalkCamera.DefaultHeadBobbingTime);
-    HeadBobbing := Config.GetFloat('head_bobbing', TWalkCamera.DefaultHeadBobbing);
+    Navigation.JumpMaxHeight := Config.GetFloat('jump/max_height', TCastleWalkNavigation.DefaultJumpMaxHeight);
+    Navigation.JumpHorizontalSpeedMultiply := Config.GetFloat('jump/horizontal_speed_multiply', TCastleWalkNavigation.DefaultJumpHorizontalSpeedMultiply);
+    Navigation.JumpTime := Config.GetFloat('jump/time', TCastleWalkNavigation.DefaultJumpTime);
+    Navigation.HeadBobbingTime := Config.GetFloat('head_bobbing_time', TCastleWalkNavigation.DefaultHeadBobbingTime);
+    HeadBobbing := Config.GetFloat('head_bobbing', TCastleWalkNavigation.DefaultHeadBobbing);
     SickProjectionSpeed := Config.GetFloat('sick_projection_speed', DefaultSickProjectionSpeed);
-    FallMinHeightToSound := Config.GetFloat('fall/sound/min_height', DefaultPlayerFallMinHeightToSound);
+    FallMinHeightToSound := Config.GetFloat('fall/sound/min_height', DefaultFallMinHeightToSound);
     FallMinHeightToDamage := Config.GetFloat('fall/damage/min_height', DefaultFallMinHeightToDamage);
     FallDamageScaleMin := Config.GetFloat('fall/damage/scale_min', DefaultFallDamageScaleMin);
     FallDamageScaleMax := Config.GetFloat('fall/damage/scale_max', DefaultFallDamageScaleMax);
-    FallSound := SoundEngine.SoundFromName(Config.GetValue('fall/sound/name', DefaultPlayerFallSoundName), false);
+    FallSound := SoundEngine.SoundFromName(Config.GetValue('fall/sound/name', DefaultFallSoundName), false);
     FSwimBreath := Config.GetFloat('swim/breath', DefaultSwimBreath);
     FSwimSoundPause := Config.GetFloat('swim/sound_pause', DefaultSwimSoundPause);
     FDrownPause := Config.GetFloat('drown/pause', DefaultDrownPause);
@@ -1294,7 +1330,7 @@ end;
 
 procedure TPlayer.LoadFromFile;
 begin
-  LoadFromFile(ApplicationData('player.xml'));
+  LoadFromFile('castle-data:/player.xml');
 end;
 
 procedure TPlayer.LevelChanged;
@@ -1323,7 +1359,7 @@ end;
 
 function TPlayer.Ground: PTriangle;
 begin
-  Result := Camera.AboveGround;
+  Result := Navigation.AboveGround;
 end;
 
 function TPlayer.LocalSegmentCollision(const Pos1, Pos2: TVector3;
@@ -1342,7 +1378,7 @@ end;
 function TPlayer.Sphere(out Radius: Single): boolean;
 begin
   Result := true;
-  Radius := Camera.Radius;
+  Radius := Navigation.Radius;
 end;
 
 procedure TPlayer.Notification(AComponent: TComponent; Operation: TOperation);
@@ -1371,6 +1407,70 @@ begin
   AboveGround := nil;
 end;
 
+function TPlayer.Press(const Event: TInputPressRelease): Boolean;
+begin
+  Result := inherited;
+  if Result then Exit;
+
+  if not (Blocked or Dead) then
+  begin
+    if PlayerInput_Attack.IsEvent(Event) then
+    begin
+      Attack;
+      Exit(true);
+    end;
+
+    if PlayerInput_CancelFlying.IsEvent(Event) then
+    begin
+      Flying := false;
+      Exit(true);
+    end;
+
+    if PlayerInput_InventoryShow.IsEvent(Event) then
+    begin
+      InventoryVisible := not InventoryVisible;
+      Exit(true);
+    end;
+
+    if PlayerInput_InventoryPrevious.IsEvent(Event) then
+    begin
+      ChangeInventoryCurrentItem(-1);
+      Exit(true);
+    end;
+
+    if PlayerInput_InventoryNext.IsEvent(Event) then
+    begin
+      ChangeInventoryCurrentItem(+1);
+      Exit(true);
+    end;
+
+    if PlayerInput_DropItem.IsEvent(Event) then
+    begin
+      DropCurrentItem;
+      Exit(true);
+    end;
+
+   if PlayerInput_UseItem.IsEvent(Event) then
+    begin
+      UseCurrentItem;
+      Exit(true);
+    end;
+  end;
+end;
+
+procedure TPlayer.Render(const Params: TRenderParams);
+begin
+  { Do this before rendering, otherwise we could display weapon in unsynchronized
+    position/orientation.
+    That's because Navigation could be changed after our Update,
+    but before rendering.
+    (Testcase: move/rotate using touch control
+    in fps_game when you have shooting_eye.) }
+  SynchronizeFromNavigation;
+
+  inherited;
+end;
+
 procedure TPlayer.LocalRender(const Params: TRenderParams);
 begin
   { TODO: This implementation is a quick hack, that depends on the fact
@@ -1394,12 +1494,12 @@ begin
     But it has to be implemented in more extensible manner in the future.
     It should also enable X3D layers. }
 
-  if RenderOnTop and (RenderingCamera.Target <> rtShadowMap) then
+  if RenderOnTop and (Params.RenderingCamera.Target <> rtShadowMap) then
     RenderContext.DepthRange := drNear;
 
   inherited;
 
-  if RenderOnTop and (RenderingCamera.Target <> rtShadowMap) then
+  if RenderOnTop and (Params.RenderingCamera.Target <> rtShadowMap) then
     RenderContext.DepthRange := drFar;
 end;
 
@@ -1408,20 +1508,20 @@ begin
   { For player, our Translation is already the suitable "eye position"
     above the ground.
 
-    Note that Player.Gravity remains false for now (only Player.Camera.Gravity
+    Note that Player.Gravity remains false for now (only Player.Navigation.Gravity
     is true), so the player is not affected by simple gravity implemented in
     CastleTransform unit, so there's no point in overriding methods like PreferredHeight.
-    TWalkCamera.Gravity does all the work now. }
+    TCastleWalkNavigation.Gravity does all the work now. }
 
   Result := Translation;
 end;
 
-procedure TPlayer.SetEnableCameraDragging(const AValue: boolean);
+procedure TPlayer.SetEnableNavigationDragging(const AValue: boolean);
 begin
-  if FEnableCameraDragging <> AValue then
+  if FEnableNavigationDragging <> AValue then
   begin
-    FEnableCameraDragging := AValue;
-    UpdateCamera;
+    FEnableNavigationDragging := AValue;
+    UpdateNavigation;
   end;
 end;
 
@@ -1451,4 +1551,20 @@ initialization
   PlayerInput_Jump.Assign(K_Space);
   PlayerInput_Crouch := TInputShortcut.Create(nil, 'Crouch (or fly/swim down)', 'move_down', igBasic);
   PlayerInput_Crouch.Assign(K_C);
+
+  PlayerInput_Attack := TInputShortcut.Create(nil, 'Attack', 'attack', igBasic);
+  PlayerInput_Attack.Assign(K_Ctrl, K_None, '', false, mbLeft);
+  PlayerInput_Attack.GroupOrder := -100; { before other (player) shortcuts }
+  PlayerInput_InventoryShow := TInputShortcut.Create(nil, 'Inventory show / hide', 'inventory_toggle', igItems);
+  PlayerInput_InventoryShow.Assign(K_None, K_None, '', false, mbLeft);
+  PlayerInput_InventoryPrevious := TInputShortcut.Create(nil, 'Select previous item', 'inventory_previous', igItems);
+  PlayerInput_InventoryPrevious.Assign(K_LeftBracket, K_None, '', false, mbLeft, mwUp);
+  PlayerInput_InventoryNext := TInputShortcut.Create(nil, 'Select next item', 'inventory_next', igItems);
+  PlayerInput_InventoryNext.Assign(K_RightBracket, K_None, '', false, mbLeft, mwDown);
+  PlayerInput_UseItem := TInputShortcut.Create(nil, 'Use (or equip) selected item', 'item_use', igItems);
+  PlayerInput_UseItem.Assign(K_Enter, K_None, '', false, mbLeft);
+  PlayerInput_DropItem := TInputShortcut.Create(nil, 'Drop selected item', 'item_drop', igItems);
+  PlayerInput_DropItem.Assign(K_None, K_None, '', false, mbLeft);
+  PlayerInput_CancelFlying := TInputShortcut.Create(nil, 'Cancel flying spell', 'cancel_flying', igOther);
+  PlayerInput_CancelFlying.Assign(K_None, K_None, '', false, mbLeft);
 end.

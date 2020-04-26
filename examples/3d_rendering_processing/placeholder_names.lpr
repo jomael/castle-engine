@@ -24,7 +24,7 @@
   will assume that model.x3d was created using standard Blender X3D exporter,
   and will show Blender object names for every shape in the model.
 
-  See TGameSceneManager.LoadLevel for a description where we use
+  See TLevel.Load for a description where we use
   placeholders in the engine. }
 program placeholder_names;
 
@@ -34,8 +34,8 @@ uses SysUtils, CastleUtils, CastleShapes, CastleSceneCore, CastleParameters,
 var
   PlaceholderName: TPlaceholderName;
   Scene: TCastleSceneCore;
+  ShapeList: TShapeList;
   Shape: TShape;
-  SI: TShapeTreeIterator;
   PlaceholderNameKey: string;
 begin
   { show PlaceholderNames }
@@ -53,19 +53,16 @@ begin
   Scene := TCastleSceneCore.Create(nil);
   try
     Scene.Load(Parameters[1], true);
-    SI := TShapeTreeIterator.Create(Scene.Shapes, { OnlyActive } true);
-    try
-      while SI.GetNext do
-      begin
-        Shape := SI.Current;
-        if PlaceholderName(Shape) <> '' then
-          Writeln(Format('Detected placeholder "%s" for shape. Shape geometry node name "%s", geometry parent node name "%s", geometry grand-parent node name "%s", geometry grand-grand-parent node name "%s".',
-            [PlaceholderName(Shape),
-             Shape.OriginalGeometry.X3DName,
-             Shape.GeometryParentNodeName,
-             Shape.GeometryGrandParentNodeName,
-             Shape.GeometryGrandGrandParentNodeName]));
-      end;
-    finally FreeAndNil(SI) end;
+    ShapeList := Scene.Shapes.TraverseList({ OnlyActive } true);
+    for Shape in ShapeList do
+    begin
+      if PlaceholderName(Shape) <> '' then
+        Writeln(Format('Detected placeholder "%s" for shape. Shape geometry node name "%s", geometry parent node name "%s", geometry grand-parent node name "%s", geometry grand-grand-parent node name "%s".',
+          [PlaceholderName(Shape),
+           Shape.OriginalGeometry.X3DName,
+           Shape.GeometryParentNodeName,
+           Shape.GeometryGrandParentNodeName,
+           Shape.GeometryGrandGrandParentNodeName]));
+    end;
   finally FreeAndNil(Scene) end;
 end.

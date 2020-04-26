@@ -66,7 +66,10 @@ const
     'Background',
     'Everything',
     'Shadow maps',
-    'Wireframe');
+    'Wireframe',
+    'Children',
+    'BBox'
+  );
 
 function X3DChangesToStr(const Changes: TX3DChanges): string;
 
@@ -104,7 +107,7 @@ end;
   to LongWord below may cause range check errors. Yes, we want to
   directly treat LongInt as 4 bytes here, because DecodeX3DColor
   works on separate bytes. See
-  http://castle-engine.sourceforge.net/x3d_implementation_texturing3d.php
+  https://castle-engine.io/x3d_implementation_texturing3d.php
   comments about PixelTexture3D. }
 
 {$include norqcheckbegin.inc}

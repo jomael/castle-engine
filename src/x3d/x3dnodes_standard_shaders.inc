@@ -22,9 +22,6 @@
 
   { Base type for all node types that specify a programmable shader. }
   TAbstractShaderNode = class(TAbstractAppearanceChildNode)
-  strict private
-    function GetLanguage: TShaderLanguage;
-    procedure SetLanguage(const Value: TShaderLanguage);
   public
     procedure CreateNode; override;
 
@@ -42,7 +39,6 @@
 
     strict private FFdLanguage: TSFStringEnum;
     public property FdLanguage: TSFStringEnum read FFdLanguage;
-    property Language: TShaderLanguage read GetLanguage write SetLanguage;
 
     {$I auto_generated_node_helpers/x3dnodes_x3dshadernode.inc}
   end;
@@ -71,7 +67,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdParts: TMFNode;
     public property FdParts: TMFNode read FFdParts;
@@ -84,7 +79,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdValue: TMFFloat;
     public property FdValue: TMFFloat read FFdValue;
@@ -100,7 +94,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdValue: TMFMatrix3f;
     public property FdValue: TMFMatrix3f read FFdValue;
@@ -113,7 +106,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdValue: TMFMatrix4f;
     public property FdValue: TMFMatrix4f read FFdValue;
@@ -127,7 +119,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdUrl: TMFString;
     public property FdUrl: TMFString read FFdUrl;
@@ -143,7 +134,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdPrograms: TMFNode;
     public property FdPrograms: TMFNode read FFdPrograms;
@@ -159,14 +149,11 @@
     ContentsCache: string;
     procedure EventUrlReceive(
       Event: TX3DEvent; Value: TX3DField; const Time: TX3DTime);
-    function GetShaderType: TShaderType;
-    procedure SetShaderType(const Value: TShaderType);
     function GetContents: string;
     procedure SetContents(const Value: string);
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdUrl: TMFString;
     public property FdUrl: TMFString read FFdUrl;
@@ -174,14 +161,11 @@
     strict private FFdType: TSFStringEnum;
     public property FdType: TSFStringEnum read FFdType;
 
-    { Shader type. }
-    property ShaderType: TShaderType read GetShaderType write SetShaderType;
-
     { The shader code.
 
       Getting this automatically loads the shader code pointed by the URL field
       of this node. The shader code may be specified in an external file,
-      or inline using "data URI", see https://castle-engine.sourceforge.io/manual_network.php .
+      or inline using "data URI", see https://castle-engine.io/manual_network.php .
       The shader code may also be specified using the XML "CDATA" in X3D XML encoding.
       Returns '' of no valid URLs are present
       (loading errors are reported to WritelnWarning).
@@ -199,7 +183,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdUrl: TMFString;
     public property FdUrl: TMFString read FFdUrl;
@@ -237,16 +220,6 @@ begin
   AddField(FFdLanguage);
 
   DefaultContainerField := 'shaders';
-end;
-
-function TAbstractShaderNode.GetLanguage: TShaderLanguage;
-begin
-  Result := TShaderLanguage(FdLanguage.EnumValue);
-end;
-
-procedure TAbstractShaderNode.SetLanguage(const Value: TShaderLanguage);
-begin
-  FdLanguage.SendEnumValue(Ord(Value));
 end;
 
 procedure TAbstractVertexAttributeNode.CreateNode;
@@ -287,12 +260,6 @@ begin
   Result := 'ComposedShader';
 end;
 
-class function TComposedShaderNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
 procedure TFloatVertexAttributeNode.CreateNode;
 begin
   inherited;
@@ -311,12 +278,6 @@ begin
   Result := 'FloatVertexAttribute';
 end;
 
-class function TFloatVertexAttributeNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
 procedure TMatrix3VertexAttributeNode.CreateNode;
 begin
   inherited;
@@ -331,12 +292,6 @@ begin
   Result := 'Matrix3VertexAttribute';
 end;
 
-class function TMatrix3VertexAttributeNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
 procedure TMatrix4VertexAttributeNode.CreateNode;
 begin
   inherited;
@@ -349,12 +304,6 @@ end;
 class function TMatrix4VertexAttributeNode.ClassX3DType: string;
 begin
   Result := 'Matrix4VertexAttribute';
-end;
-
-class function TMatrix4VertexAttributeNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 procedure TPackagedShaderNode.CreateNode;
@@ -374,12 +323,6 @@ begin
   Result := 'PackagedShader';
 end;
 
-class function TPackagedShaderNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
 procedure TProgramShaderNode.CreateNode;
 begin
   inherited;
@@ -391,12 +334,6 @@ end;
 class function TProgramShaderNode.ClassX3DType: string;
 begin
   Result := 'ProgramShader';
-end;
-
-class function TProgramShaderNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 procedure TShaderPartNode.CreateNode;
@@ -450,7 +387,7 @@ begin
     begin
       FullUrl := Node.PathFromBaseUrl(FdUrl.Items[I]);
       try
-        Result := FileToString(FullUrl, false, MimeType);
+        Result := FileToString(FullUrl, MimeType);
         if (MimeType <> '') and
            (MimeType <> 'text/plain') then
           WritelnWarning('VRML/X3D', Format('MIME type "%s" not recognized as shader source. Using anyway. If this is a valid shader source mime type that should be recognized, please submit a feature request.', [MimeType]));
@@ -491,22 +428,6 @@ begin
   ContentsCached := false;
 end;
 
-class function TShaderPartNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
-function TShaderPartNode.GetShaderType: TShaderType;
-begin
-  Result := TShaderType(FdType.EnumValue);
-end;
-
-procedure TShaderPartNode.SetShaderType(const Value: TShaderType);
-begin
-  FdType.SendEnumValue(Ord(Value));
-end;
-
 procedure TShaderProgramNode.CreateNode;
 begin
   inherited;
@@ -528,12 +449,6 @@ end;
 class function TShaderProgramNode.ClassX3DType: string;
 begin
   Result := 'ShaderProgram';
-end;
-
-class function TShaderProgramNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 procedure RegisterShadersNodes;

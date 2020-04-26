@@ -29,7 +29,7 @@ interface
 uses SysUtils, Classes, Generics.Collections,
   CastleVectors, CastleTransform, CastleBoxes, X3DNodes, CastleClassUtils,
   CastleUtils, CastleInternalTriangleOctree, CastleFrustum, CastleInternalOctree,
-  X3DTriangles, X3DFields, CastleGeometryArrays, CastleTriangles,
+  X3DTriangles, X3DFields, CastleGeometryArrays, CastleTriangles, CastleImages,
   CastleMaterialProperties, CastleShapeInternalShadowVolumes;
 
 type
@@ -80,13 +80,16 @@ type
   TShapeSpatialStructures = set of TShapeSpatialStructure;
 
   TShape = class;
+  TShapeList = class;
 
-  TShapeTraverseFunc = procedure (Shape: TShape) is nested;
+  TShapeTraverseFunc = procedure (const Shape: TShape) is nested;
 
   TEnumerateShapeTexturesFunction = function (Shape: TShape;
     Texture: TAbstractTextureNode): Pointer of object;
 
   TTestShapeVisibility = function (Shape: TShape): boolean of object;
+
+  TShapesHash = QWord;
 
   { Triangle information, called by TShape.LocalTriangulate and such.
     See the @link(TTriangle) fields documentation for the meaning
@@ -114,10 +117,10 @@ type
     function ShapeNode: TAbstractShapeNode;
 
     { X3D material node of this triangle. May be @nil in case material is not set,
-      or in VRML 1.0. }
-    function Material: TMaterialNode;
-
-    function MaterialNode: TMaterialNode; deprecated 'use Material';
+      or is VRML 1.0 node, or is TCommonSurfaceShaderNode,
+      or is TTwoSidedMaterialNode. }
+    function Material: TMaterialNode; deprecated 'use MaterialInfo';
+    function MaterialNode: TMaterialNode; deprecated 'use MaterialInfo';
 
     { Material information for the material of this triangle.
       See TMaterialInfo for usage description.
@@ -125,7 +128,7 @@ type
       (which indicates white unlit look).
 
       Returned TMaterialInfo is valid only as long as the underlying
-      Material or CommonSurfaceShader node exists.
+      node (Material, TwoSidedMaterial, CommonSurfaceShader) exists.
       Do not free it yourself, it will be automatically freed. }
     function MaterialInfo: TMaterialInfo;
 
@@ -167,23 +170,71 @@ type
     (TX3DGraphTraverseState) as leafs (TShape). }
   TShapeTree = class
   strict private
-    FParentScene: TObject;
+    FParentScene: TX3DEventsEngine;
+    { Cached MaxShapesCount result, or -1 if not in cache yet. }
+    FMaxShapesCount: Integer;
+  private
+    { Used by TShapeTreeIterator. }
+    CachedChildrenList: array [
+      { OnlyActive } Boolean,
+      { OnlyVisible } Boolean,
+      { OnlyCollidable } Boolean ] of TShapeList;
+    CachedChildrenListHash: array [
+      { OnlyActive } Boolean,
+      { OnlyVisible } Boolean,
+      { OnlyCollidable } Boolean ] of TShapesHash;
+    { Automatically set when adding item to TShapeTreeGroup. }
+    FParent: TShapeTree;
+    function MaxShapesCountCore: Integer; virtual; abstract;
+    procedure InvalidateMaxShapesCount;
+    procedure TraverseCore(const Func: TShapeTraverseFunc;
+      const OnlyActive: boolean;
+      const OnlyVisible: boolean;
+      const OnlyCollidable: boolean); virtual; abstract;
+    procedure FastTransformUpdateCore(var AnythingChanged: Boolean;
+      const ParentTransform, ParentInvertedTransform: TMatrix4;
+      const ParentTransformScale: Single); virtual; abstract;
   public
-    constructor Create(AParentScene: TObject);
+    constructor Create(const AParentScene: TX3DEventsEngine);
+    destructor Destroy; override;
+
+    { Maximum value of ShapesCount.
+      This is cached, so it's usually instant, in contrast to ShapesCount. }
+    function MaxShapesCount: Integer;
 
     { Parent TCastleSceneCore instance. This cannot be declared here as
       TCastleSceneCore (this would create circular unit dependency),
       but it always is TCastleSceneCore. }
-    property ParentScene: TObject read FParentScene write FParentScene;
+    property ParentScene: TX3DEventsEngine read FParentScene write FParentScene;
 
-    procedure Traverse(Func: TShapeTraverseFunc;
+    { Traverse shapes inside. There are a few alternative ways to do this:
+
+      - Use this method, and have a callback called for each TShape.
+
+      - Use TraverseList, and have a list of TShape.
+
+      - Use TShapeTreeIterator.Create, that has it's own GetNext / Current methods to enumerate.
+        This is no longer advised -- using TraverseList is simpler and equally fast.
+
+      - Use TShapeList.Create(Tree, OnlyActive, OnlyVisible, OnlyCollidable) overload.
+        This is no longer advised -- using TraverseList is simpler and faster.
+    }
+    procedure Traverse(const Func: TShapeTraverseFunc;
       const OnlyActive: boolean;
       const OnlyVisible: boolean = false;
-      const OnlyCollidable: boolean = false); virtual; abstract;
+      const OnlyCollidable: boolean = false);
 
+    { Return TShapeList containing the traversed shapes, just like @link(Traverse).
+      Caller should never free the resulting list, it is owned by this TShapeTree instance. }
+    function TraverseList(
+      const OnlyActive: boolean;
+      const OnlyVisible: boolean = false;
+      const OnlyCollidable: boolean = false): TShapeList;
+
+    { How many shapes would be enumerated by @link(Traverse). }
     function ShapesCount(const OnlyActive: boolean;
       const OnlyVisible: boolean = false;
-      const OnlyCollidable: boolean = false): Cardinal; virtual; abstract;
+      const OnlyCollidable: boolean = false): Cardinal;
 
     { Look for shape with Geometry.X3DName = GeometryNodeName.
       Returns @nil if not found. }
@@ -199,22 +250,51 @@ type
     { Enumerate all single texture nodes (possibly) used by the shapes.
       This looks into all shapes (not only active, so e.g. it looks into all
       Switch/LOD children, not only the chosen one).
-
-      This looks into the
-
-      @unorderedList(
-        @itemSpacing Compact
-        @item(Appearance.texture field (and if it's MultiTexture,
-          looks into it's children))
-        @item Into shaders textures (GLSL shaders, CommonSurfaceShader...).
-        @item For VRML 1.0, it also looks into VRML1State.Texture2.
-      )
+      This checks all possible ways how a texture may be used by a shape,
+      so it looks at material fields,
+      shaders (ComposedShader, CommonSurfaceShader) and more.
 
       If Enumerate callbacks returns non-nil for some texture, returns it immediately,
       and stops further processing. }
-    function EnumerateTextures(Enumerate: TEnumerateShapeTexturesFunction): Pointer; virtual; abstract;
+    function EnumerateTextures(const Enumerate: TEnumerateShapeTexturesFunction): Pointer; virtual; abstract;
 
     function DebugInfo(const Indent: string = ''): string; virtual; abstract;
+
+    { Using the TX3DNode.InternalSceneShape field,
+      you can associate X3D node with a number of TShapeTree instances.
+      This allows to map X3D node -> TShapeTree instances instantly
+      (without e.g. searching the shapes tree for it),
+      which is great to do some operations very quickly.
+
+      Right now:
+      - TShapeTreeTransform is associated with ITransformNode
+        (like TTransformNode, TBillboardNode).
+
+      - TShape is associated with
+        TShapeNode,
+        TAbstractGeometryNode,
+        TCoordinateNode (anything that can be inside TAbstractGeometryNode.CoordField),
+        TColorNode, TColorRGBANode  (anything that can be inside TAbstractGeometryNode.ColorField),
+        TMaterialNode (anything that can be in TShapeNode.Material),
+        TTextureCoordinateNode and other stuff that can be inside TAbstractGeometryNode.InternalTexCoord,
+        TClipPlaneNode .
+
+      Note that UnAssociateNode should only be called on nodes
+      with which we are associated. Trying to call UnAssociateNode
+      on a node on which we didn't call AssociateNode will have
+      undefined results (for speed).
+
+      It is valid to associate X3D node with TShapeTree multiple times,
+      but it must be unassociated the same number of times.
+
+      @param Node The node with possibly associated shapes. Never @nil.
+    }
+    procedure AssociateNode(const Node: TX3DNode);
+    procedure UnAssociateNode(const Node: TX3DNode);
+    class function AssociatedShape(const Node: TX3DNode; const Index: Integer): TShapeTree; static;
+    class function AssociatedShapesCount(const Node: TX3DNode): Integer; static;
+
+    procedure FastTransformUpdate(var AnythingChanged: Boolean); virtual;
   end;
 
   { Shape is a geometry node @link(Geometry) instance and it's
@@ -265,7 +345,8 @@ type
     FGeometryGrandParentNodeName,
     FGeometryGrandGrandParentNodeName: string;
 
-    FDynamicGeometry: boolean;
+    FLocalGeometryChangedCount: Cardinal;
+    FDynamicGeometry: Boolean;
 
     IsCachedMaterialProperty: boolean;
     CachedMaterialProperty: TMaterialProperty;
@@ -289,6 +370,21 @@ type
       freeing eventual instances created by Proxy methods.
       Next Geometry() or State() call will cause Proxy to be recalculated. }
     procedure FreeProxy;
+
+    procedure AssociateGeometryState(
+      const AGeometry: TAbstractGeometryNode;
+      const AState: TX3DGraphTraverseState);
+    procedure UnAssociateGeometryState(
+      const AGeometry: TAbstractGeometryNode;
+      const AState: TX3DGraphTraverseState);
+    procedure AssociateGeometryStateNeverProxied(
+      const AGeometry: TAbstractGeometryNode;
+      const AState: TX3DGraphTraverseState);
+    procedure UnAssociateGeometryStateNeverProxied(
+      const AGeometry: TAbstractGeometryNode;
+      const AState: TX3DGraphTraverseState);
+    procedure AssociateProxyGeometryState(const OverTriangulate: Boolean);
+    procedure UnAssociateProxyGeometryState(const OverTriangulate: Boolean);
   strict private
     TriangleOctreeToAdd: TTriangleOctree;
     procedure AddTriangleToOctreeProgress(Shape: TObject;
@@ -333,15 +429,25 @@ type
       PointingDeviceClear on ParentScene (since some PTriangle pointers
       were freed). }
     procedure FreeOctreeTriangles;
+  private
+    function MaxShapesCountCore: Integer; override;
+    procedure TraverseCore(const Func: TShapeTraverseFunc;
+      const OnlyActive: boolean;
+      const OnlyVisible: boolean = false;
+      const OnlyCollidable: boolean = false); override;
+    procedure FastTransformUpdateCore(var AnythingChanged: Boolean;
+      const ParentTransform, ParentInvertedTransform: TMatrix4;
+      const ParentTransformScale: Single); override;
   public
     { Constructor.
-      @param(ParentInfo Resursive information about parents,
+      @param(ParentInfo Recursive information about parents,
         for the geometry node of given shape.
         Note that for VRML 2.0/X3D, the immediate parent
         of geometry node is always TShapeNode.) }
-    constructor Create(AParentScene: TObject;
-      AOriginalGeometry: TAbstractGeometryNode; AOriginalState: TX3DGraphTraverseState;
-      ParentInfo: PTraversingInfo);
+    constructor Create(const AParentScene: TX3DEventsEngine;
+      const AOriginalGeometry: TAbstractGeometryNode;
+      const AOriginalState: TX3DGraphTraverseState;
+      const ParentInfo: PTraversingInfo);
     destructor Destroy; override;
 
     { Original geometry node, that you get from a VRML/X3D graph. }
@@ -503,24 +609,19 @@ type
       read  FTriangleOctreeProgressTitle
       write FTriangleOctreeProgressTitle;
 
-    { Decide should the shape use alpha blending (partial transparency),
-      looking at material, color, texture nodes (including at texture
-      images contents).
+    { How should the alpha of the resulting calculation be used.
+      Should we use alpha blending (partial transparency),
+      or alpha test (yes-or-no transparency)
+      or none of it (shape is simply opaque).
 
-      This may look at the data of the texture node,
-      so it should be called before any calls to TCastleSceneCore.FreeResources.
-      It checks AlphaChannel of textures, so assumes that given shape
-      textures are already loaded. }
-    function Blending: boolean;
-    function Transparent: boolean; deprecated 'use Blending';
-
-    procedure Traverse(Func: TShapeTraverseFunc;
-      const OnlyActive: boolean;
-      const OnlyVisible: boolean = false;
-      const OnlyCollidable: boolean = false); override;
-    function ShapesCount(const OnlyActive: boolean;
-      const OnlyVisible: boolean = false;
-      const OnlyCollidable: boolean = false): Cardinal; override;
+      This is determined looking at the @link(TAppearanceNode.AlphaChannel) field.
+      By default, it is acAuto, which in turn means that the final value
+      of this method (which cannot be acAuto) is calculated
+      looking at material, color, texture nodes data (including at texture
+      images contents). }
+    function AlphaChannel: TAlphaChannel;
+    function Blending: boolean; deprecated 'use "AlphaChannel = acBlending"';
+    function Transparent: boolean; deprecated 'use "AlphaChannel = acBlending"';
 
     { Is shape visible, according to VRML Collision node rules.
       Ths is simply a shortcut (with more obvious name) for
@@ -592,7 +693,7 @@ type
       const CreaseAngle: Single): TVector3List;
     { @groupEnd }
 
-    function EnumerateTextures(Enumerate: TEnumerateShapeTexturesFunction): Pointer; override;
+    function EnumerateTextures(const Enumerate: TEnumerateShapeTexturesFunction): Pointer; override;
 
     { Is the texture node Node possibly used by this shape.
       This is equivalent to checking does EnumerateShapeTextures return this shape. }
@@ -600,7 +701,7 @@ type
 
     { Check is shape a shadow caster. Looks at Shape's
       Appearance.shadowCaster field (see
-      http://castle-engine.sourceforge.net/x3d_extensions.php#section_ext_shadow_caster). }
+      https://castle-engine.io/x3d_extensions.php#section_ext_shadow_caster). }
     function ShadowCaster: boolean;
 
     { Triangulate shape. Calls TriangleEvent callback for each triangle.
@@ -619,15 +720,10 @@ type
     function DebugInfo(const Indent: string = ''): string; override;
     function NiceName: string;
 
-    { Local geometry is treated as dynamic (changes very often, like every frame).
-      This is automatically detected and set to @true, although you can also
-      explicitly set this if you want.
-
-      Dynamic geometry has worse collision detection (using a crude
-      approximation) and falls back to rendering method better for
-      dynamic geometry (for example, marking VBO data as dynamic for OpenGL
-      rendering). }
-    property DynamicGeometry: boolean read FDynamicGeometry write FDynamicGeometry;
+    { Local geometry changes very often (like every frame).
+      This is automatically detected and set to @true.
+      May be used as an optimization hint. }
+    property DynamicGeometry: Boolean read FDynamicGeometry;
 
     { Shape node in VRML/X3D graph.
       This is always present for VRML >= 2 (including X3D).
@@ -650,6 +746,17 @@ type
 
     { @exclude }
     property InternalShadowVolumes: TShapeShadowVolumes read FShadowVolumes;
+
+    { @exclude
+      Called internally by the engine when changing some stuff in shapes.
+      User code should not use it (as we do not guarantee what is OK
+      to change this way, and what should rebuild shapes graph),
+      instead user code should change X3D scene graph,
+      calling @link(TCastleSceneCore.BeforeNodesFree) earlier,
+      and call @link(TX3DField.Changed) after each change. }
+    procedure InternalBeforeChange;
+    { @exclude }
+    procedure InternalAfterChange;
   end;
 
   TShapeTreeList = specialize TObjectList<TShapeTree>;
@@ -668,21 +775,23 @@ type
   TShapeTreeGroup = class(TShapeTree)
   strict private
     FChildren: TShapeTreeList;
-  public
-    constructor Create(AParentScene: TObject);
-    destructor Destroy; override;
-
-    procedure Traverse(Func: TShapeTraverseFunc;
+    procedure ChildrenChanged(Sender: TObject; constref Item: TShapeTree; Action: TCollectionNotification);
+  private
+    function MaxShapesCountCore: Integer; override;
+    procedure TraverseCore(const Func: TShapeTraverseFunc;
       const OnlyActive: boolean;
       const OnlyVisible: boolean = false;
       const OnlyCollidable: boolean = false); override;
-    function ShapesCount(const OnlyActive: boolean;
-      const OnlyVisible: boolean = false;
-      const OnlyCollidable: boolean = false): Cardinal; override;
+    procedure FastTransformUpdateCore(var AnythingChanged: Boolean;
+      const ParentTransform, ParentInvertedTransform: TMatrix4;
+      const ParentTransformScale: Single); override;
+  public
+    constructor Create(const AParentScene: TX3DEventsEngine);
+    destructor Destroy; override;
 
     property Children: TShapeTreeList read FChildren;
 
-    function EnumerateTextures(Enumerate: TEnumerateShapeTexturesFunction): Pointer; override;
+    function EnumerateTextures(const Enumerate: TEnumerateShapeTexturesFunction): Pointer; override;
 
     {$ifdef SHAPE_ITERATOR_SOPHISTICATED}
 
@@ -712,16 +821,13 @@ type
   TShapeTreeSwitch = class(TShapeTreeGroup)
   strict private
     FSwitchNode: TSwitchNode;
-  public
-    property SwitchNode: TSwitchNode read FSwitchNode write FSwitchNode;
-
-    procedure Traverse(Func: TShapeTraverseFunc;
+  private
+    procedure TraverseCore(const Func: TShapeTraverseFunc;
       const OnlyActive: boolean;
       const OnlyVisible: boolean = false;
       const OnlyCollidable: boolean = false); override;
-    function ShapesCount(const OnlyActive: boolean;
-      const OnlyVisible: boolean = false;
-      const OnlyCollidable: boolean = false): Cardinal; override;
+  public
+    property SwitchNode: TSwitchNode read FSwitchNode write FSwitchNode;
 
     {$ifdef SHAPE_ITERATOR_SOPHISTICATED}
     function IterateBeginIndex(OnlyActive: boolean): Integer; override;
@@ -738,16 +844,24 @@ type
   strict private
     FTransformNode: TX3DNode;
     FTransformState: TX3DGraphTraverseState;
+    procedure SetTransformNode(const Value: TX3DNode);
+  private
+    procedure FastTransformUpdateCore(var AnythingChanged: Boolean;
+      const ParentTransform, ParentInvertedTransform: TMatrix4;
+      const ParentTransformScale: Single); override;
   public
-    constructor Create(AParentScene: TObject);
+    constructor Create(const AParentScene: TX3DEventsEngine);
     destructor Destroy; override;
+    procedure FastTransformUpdate(var AnythingChanged: Boolean); override;
 
     { Internal note: We don't declare TransformNode as ITransformNode interface,
       because we don't want to keep reference to it too long,
       as it's manually freed. That's safer. }
     { Transforming VRML/X3D node. Always assigned, always may be casted
-      to ITransformNode interface. }
-    property TransformNode: TX3DNode read FTransformNode write FTransformNode;
+      to ITransformNode interface.
+      Note that it doesn't have to be TTransformNode,
+      e.g. TBillboardNode also supports ITransformNode. }
+    property TransformNode: TX3DNode read FTransformNode write SetTransformNode;
 
     { State right before traversing the TransformNode.
       Owned by this TShapeTreeTransform instance. You should assign
@@ -778,6 +892,11 @@ type
     FLODInvertedTransform: TMatrix4;
     FLevel: Cardinal;
     FWasLevel_ChangedSend: boolean;
+  private
+    procedure TraverseCore(const Func: TShapeTraverseFunc;
+      const OnlyActive: boolean;
+      const OnlyVisible: boolean = false;
+      const OnlyCollidable: boolean = false); override;
   public
     property LODNode: TAbstractLODNode read FLODNode write FLODNode;
     function LODInvertedTransform: PMatrix4;
@@ -800,14 +919,6 @@ type
     property WasLevel_ChangedSend: boolean
       read FWasLevel_ChangedSend write FWasLevel_ChangedSend default false;
 
-    procedure Traverse(Func: TShapeTraverseFunc;
-      const OnlyActive: boolean;
-      const OnlyVisible: boolean = false;
-      const OnlyCollidable: boolean = false); override;
-    function ShapesCount(const OnlyActive: boolean;
-      const OnlyVisible: boolean = false;
-      const OnlyCollidable: boolean = false): Cardinal; override;
-
     {$ifdef SHAPE_ITERATOR_SOPHISTICATED}
     function IterateBeginIndex(OnlyActive: boolean): Integer; override;
     function IterateEndIndex(OnlyActive: boolean): Cardinal; override;
@@ -817,26 +928,37 @@ type
   TProximitySensorInstance = class(TShapeTree)
   strict private
     FNode: TProximitySensorNode;
+  private
+    function MaxShapesCountCore: Integer; override;
+    procedure TraverseCore(const Func: TShapeTraverseFunc;
+      const OnlyActive: boolean;
+      const OnlyVisible: boolean = false;
+      const OnlyCollidable: boolean = false); override;
+    procedure FastTransformUpdateCore(var AnythingChanged: Boolean;
+      const ParentTransform, ParentInvertedTransform: TMatrix4;
+      const ParentTransformScale: Single); override;
   public
     InvertedTransform: TMatrix4;
     IsActive: boolean;
 
     property Node: TProximitySensorNode read FNode write FNode;
 
-    procedure Traverse(Func: TShapeTraverseFunc;
-      const OnlyActive: boolean;
-      const OnlyVisible: boolean = false;
-      const OnlyCollidable: boolean = false); override;
-    function ShapesCount(const OnlyActive: boolean;
-      const OnlyVisible: boolean = false;
-      const OnlyCollidable: boolean = false): Cardinal; override;
-    function EnumerateTextures(Enumerate: TEnumerateShapeTexturesFunction): Pointer; override;
+    function EnumerateTextures(const Enumerate: TEnumerateShapeTexturesFunction): Pointer; override;
     function DebugInfo(const Indent: string = ''): string; override;
   end;
 
   TVisibilitySensorInstance = class(TShapeTree)
   strict private
     FNode: TVisibilitySensorNode;
+  private
+    function MaxShapesCountCore: Integer; override;
+    procedure TraverseCore(const Func: TShapeTraverseFunc;
+      const OnlyActive: boolean;
+      const OnlyVisible: boolean = false;
+      const OnlyCollidable: boolean = false); override;
+    procedure FastTransformUpdateCore(var AnythingChanged: Boolean;
+      const ParentTransform, ParentInvertedTransform: TMatrix4;
+      const ParentTransformScale: Single); override;
   public
     { Bounding box of this visibility sensor instance,
       already transformed to global VRML/X3D scene coordinates.
@@ -846,18 +968,9 @@ type
 
     property Node: TVisibilitySensorNode read FNode write FNode;
 
-    procedure Traverse(Func: TShapeTraverseFunc;
-      const OnlyActive: boolean;
-      const OnlyVisible: boolean = false;
-      const OnlyCollidable: boolean = false); override;
-    function ShapesCount(const OnlyActive: boolean;
-      const OnlyVisible: boolean = false;
-      const OnlyCollidable: boolean = false): Cardinal; override;
-    function EnumerateTextures(Enumerate: TEnumerateShapeTexturesFunction): Pointer; override;
+    function EnumerateTextures(const Enumerate: TEnumerateShapeTexturesFunction): Pointer; override;
     function DebugInfo(const Indent: string = ''): string; override;
   end;
-
-  TShapeList = class;
 
   { Iterates over all TShape items that would be enumerated by
     Tree.Traverse. Sometimes it's easier to write code using this iterator
@@ -875,13 +988,13 @@ type
     CurrentIndex: Integer;
     {$endif}
   public
-    constructor Create(Tree: TShapeTree; const OnlyActive: boolean;
+    constructor Create(const Tree: TShapeTree; const OnlyActive: boolean;
       const OnlyVisible: boolean = false;
       const OnlyCollidable: boolean = false);
     destructor Destroy; override;
     function GetNext: boolean;
     property Current: TShape read FCurrent;
-  end;
+  end deprecated{ 'use Tree.TraverseList(...)'};
 
   TShapeList = class(specialize TObjectList<TShape>)
   strict private
@@ -893,9 +1006,9 @@ type
     constructor Create;
 
     { Constructor that initializes list contents by traversing given tree. }
-    constructor Create(Tree: TShapeTree; const OnlyActive: boolean;
+    constructor Create(const Tree: TShapeTree; const OnlyActive: boolean;
       const OnlyVisible: boolean = false;
-      const OnlyCollidable: boolean = false);
+      const OnlyCollidable: boolean = false); deprecated 'use Tree.TraverseList(...)';
 
     { Sort shapes by distance to given Position point, closest first. }
     procedure SortFrontToBack(const Position: TVector3);
@@ -916,14 +1029,11 @@ type
 var
   { If nonzero, disables automatic TShape.DynamicGeometry detection
     on every node modification. This is useful if you do some interactive
-    editing of the shape, but you don't want the shape octree to be replaced
-    by it's approximation. }
+    editing of the shape, but you don't want to mark shape as dynamic. }
   DisableAutoDynamicGeometry: Cardinal;
 
   { Log various information about shapes. This displays quite a lot of non-critical
-    information when opening non-trivial models.
-
-    Meaningful only if you initialized log (see CastleLog unit) by InitializeLog first. }
+    information when opening non-trivial models. }
   LogShapes: boolean = false;
 
 type
@@ -950,7 +1060,7 @@ type
     So just don't use shapes with multiple materials if this shape
     may be meaningful for a placeholder.
 
-    This is used only by TGameSceneManager.LoadLevel placeholders.
+    This is used only by TLevel.Load placeholders.
     Ultimately, this should be something that is easy to set when creating
     a 3D model in given external modeler.
     @italic(Nothing else in our engine depends on a particular modeler
@@ -980,7 +1090,7 @@ implementation
 
 uses Generics.Defaults,
   CastleProgress, CastleSceneCore, CastleInternalNormals, CastleLog,
-  CastleStringUtils, CastleArraysGenerator, CastleImages, CastleURIUtils;
+  CastleStringUtils, CastleArraysGenerator, CastleURIUtils;
 
 const
   UnknownTexCoord: TTriangle4 = (Data: (
@@ -1021,15 +1131,17 @@ var
   S: TAbstractShapeNode;
 begin
   S := ShapeNode;
-  if S <> nil then
-    Result := S.Material
+  if (S <> nil) and (S.Material is TMaterialNode) then
+    Result := TMaterialNode(S.Material)
   else
     Result := nil;
 end;
 
 function TTriangleHelper.MaterialNode: TMaterialNode;
 begin
+  {$warnings off} // using deprecated in deprecated
   Result := Material;
+  {$warnings on}
 end;
 
 function TTriangleHelper.MaterialInfo: TMaterialInfo;
@@ -1081,49 +1193,216 @@ end;
 
 { TShapeTree ------------------------------------------------------------ }
 
-constructor TShapeTree.Create(AParentScene: TObject);
+constructor TShapeTree.Create(const AParentScene: TX3DEventsEngine);
 begin
   inherited Create;
   FParentScene := AParentScene;
+  FMaxShapesCount := -1;
+end;
+
+destructor TShapeTree.Destroy;
+var
+  OnlyActive: Boolean;
+  OnlyVisible: Boolean;
+  OnlyCollidable: Boolean;
+begin
+  for OnlyActive in Boolean do
+    for OnlyVisible in Boolean do
+      for OnlyCollidable in Boolean do
+        FreeAndNil(CachedChildrenList[OnlyActive, OnlyVisible, OnlyCollidable]);
+  inherited;
+end;
+
+function TShapeTree.MaxShapesCount: Integer;
+begin
+  if FMaxShapesCount = -1 then
+    FMaxShapesCount := MaxShapesCountCore;
+  Result := FMaxShapesCount;
 end;
 
 function TShapeTree.FindGeometryNodeName(
   const GeometryNodeName: string; OnlyActive: boolean): TShape;
 var
-  SI: TShapeTreeIterator;
+  ShapeList: TShapeList;
+  Shape: TShape;
 begin
-  SI := TShapeTreeIterator.Create(Self, OnlyActive);
-  try
-    while SI.GetNext do
-    begin
-      Result := SI.Current;
-      if Result.OriginalGeometry.X3DName = GeometryNodeName then Exit;
-    end;
-  finally FreeAndNil(SI) end;
+  ShapeList := TraverseList(OnlyActive);
+  for Shape in ShapeList do
+  begin
+    Result := Shape;
+    if Result.OriginalGeometry.X3DName = GeometryNodeName then Exit;
+  end;
   Result := nil;
 end;
 
 function TShapeTree.FindShapeWithParentNamed(
   const ParentNodeName: string; OnlyActive: boolean): TShape;
 var
-  SI: TShapeTreeIterator;
+  ShapeList: TShapeList;
+  Shape: TShape;
 begin
-  SI := TShapeTreeIterator.Create(Self, OnlyActive);
-  try
-    while SI.GetNext do
-    begin
-      Result := SI.Current;
-      if Result.OriginalGeometry.TryFindParentByName(ParentNodeName) <> nil then Exit;
-    end;
-  finally FreeAndNil(SI) end;
+  ShapeList := TraverseList(OnlyActive);
+  for Shape in ShapeList do
+  begin
+    Result := Shape;
+    if Result.OriginalGeometry.TryFindParentByName(ParentNodeName) <> nil then Exit;
+  end;
   Result := nil;
+end;
+
+procedure TShapeTree.AssociateNode(const Node: TX3DNode);
+var
+  OldShapeTree: TShapeTree;
+begin
+  { InternalSceneShape is either nil, TShapeTree or TShapeTreeList.
+    Memory usage is important here -- we have a lot of nodes in larger scenes,
+    and in many cases a Node is associated with at most one TShapeTree.
+    So we optimize this common case. }
+
+  if Node.InternalSceneShape = nil then
+    Node.InternalSceneShape := Self
+  else
+  if Node.InternalSceneShape <> nil then
+  begin
+    { comparing ClassType is faster than "InternalSceneShape is TShapeTreeList",
+      and enough in this case. }
+    if Node.InternalSceneShape.ClassType <> TShapeTreeList then
+    begin
+      // convert Node.InternalSceneShape into list with 1 item
+      Assert(Node.InternalSceneShape is TShapeTree);
+      OldShapeTree := TShapeTree(Node.InternalSceneShape);
+      Node.InternalSceneShape := TShapeTreeList.Create(false);
+      TShapeTreeList(Node.InternalSceneShape).Add(OldShapeTree);
+    end;
+    TShapeTreeList(Node.InternalSceneShape).Add(Self);
+  end;
+end;
+
+procedure TShapeTree.UnAssociateNode(const Node: TX3DNode);
+begin
+  if Node.InternalSceneShape = Self then
+    Node.InternalSceneShape := nil
+  else
+  begin
+    if Node.InternalSceneShape = nil then
+    begin
+      WritelnWarning('Calling %s.UnAssociateNode on X3D node that is already not associated with anything: %s. This can happen when you manually change nodes.',
+        [ClassName, Node.NiceName]);
+      Exit;
+    end;
+    Assert(Node.InternalSceneShape is TShapeTreeList);
+    if TShapeTreeList(Node.InternalSceneShape).Count = 1 then
+    begin
+      Assert(TShapeTreeList(Node.InternalSceneShape)[0] = Self);
+      Node.InternalSceneShape.Free;
+      Node.InternalSceneShape := nil;
+    end else
+      TShapeTreeList(Node.InternalSceneShape).Remove(Self);
+  end;
+end;
+
+class function TShapeTree.AssociatedShape(const Node: TX3DNode; const Index: Integer): TShapeTree; static;
+begin
+  if Node.InternalSceneShape.ClassType = TShapeTreeList then
+    Result := TShapeTreeList(Node.InternalSceneShape)[Index]
+  else
+    Result := TShapeTree(Node.InternalSceneShape);
+end;
+
+class function TShapeTree.AssociatedShapesCount(const Node: TX3DNode): Integer; static;
+begin
+  if Node.InternalSceneShape = nil then
+    Result := 0
+  else
+  if Node.InternalSceneShape.ClassType <> TShapeTreeList then
+  begin
+    Assert(Node.InternalSceneShape is TShapeTree);
+    Result := 1;
+  end else
+    Result := TShapeTreeList(Node.InternalSceneShape).Count;
+end;
+
+procedure TShapeTree.InvalidateMaxShapesCount;
+begin
+  FMaxShapesCount := -1;
+  if FParent <> nil then
+    FParent.InvalidateMaxShapesCount;
+end;
+
+function TShapeTree.TraverseList(const OnlyActive, OnlyVisible, OnlyCollidable: Boolean): TShapeList;
+
+  procedure AddToList(const Shape: TShape);
+  begin
+    Result.Add(Shape);
+  end;
+
+var
+  CurrentShapesHash: TShapesHash;
+
+  { Call TraverseCore, gather shapes to a new list. }
+  procedure TraverseCoreToList;
+  begin
+    Result := TShapeList.Create;
+    { Set Capacity, to make AddToList calls faster.
+      Note that we use MaxShapesCount instead of ShapesCount,
+      since MaxShapesCount is usually instant, while ShapesCount...
+      now ShapesCount depends on TraverseList, so it would cause infinite loop. }
+    Result.Capacity := MaxShapesCount;
+    TraverseCore(@AddToList, OnlyActive, OnlyVisible, OnlyCollidable);
+    CachedChildrenListHash[OnlyActive, OnlyVisible, OnlyCollidable] := CurrentShapesHash;
+    CachedChildrenList[OnlyActive, OnlyVisible, OnlyCollidable] := Result;
+  end;
+
+begin
+  Result := CachedChildrenList[OnlyActive, OnlyVisible, OnlyCollidable];
+  if Result <> nil then
+  begin
+    if FParentScene <> nil then
+      CurrentShapesHash := TCastleSceneCore(FParentScene).InternalShapesHash
+    else
+      CurrentShapesHash := 0;
+    if CurrentShapesHash <> CachedChildrenListHash[OnlyActive, OnlyVisible, OnlyCollidable] then
+    begin
+      FreeAndNil(CachedChildrenList[OnlyActive, OnlyVisible, OnlyCollidable]);
+      TraverseCoreToList;
+    end;
+  end else
+  begin
+    TraverseCoreToList;
+  end;
+end;
+
+procedure TShapeTree.Traverse(const Func: TShapeTraverseFunc;
+  const OnlyActive, OnlyVisible, OnlyCollidable: boolean);
+var
+  I: Integer;
+  List: TShapeList;
+begin
+  List := TraverseList(OnlyActive, OnlyVisible, OnlyCollidable);
+  for I := 0 to List.Count - 1 do
+    Func(List[I]);
+end;
+
+function TShapeTree.ShapesCount(
+  const OnlyActive, OnlyVisible, OnlyCollidable: boolean): Cardinal;
+begin
+  // Since TraverseList is optimized now by caching, this method can just call TraverseList
+  Result := TraverseList(OnlyActive, OnlyVisible, OnlyCollidable).Count;
+end;
+
+procedure TShapeTree.FastTransformUpdate(var AnythingChanged: Boolean);
+begin
+  FastTransformUpdateCore(AnythingChanged, TMatrix4.Identity, TMatrix4.Identity, 1);
 end;
 
 { TShape -------------------------------------------------------------- }
 
-constructor TShape.Create(AParentScene: TObject;
-  AOriginalGeometry: TAbstractGeometryNode; AOriginalState: TX3DGraphTraverseState;
-  ParentInfo: PTraversingInfo);
+constructor TShape.Create(const AParentScene: TX3DEventsEngine;
+  const AOriginalGeometry: TAbstractGeometryNode;
+  const AOriginalState: TX3DGraphTraverseState;
+  const ParentInfo: PTraversingInfo);
+var
+  PI: PTraversingInfo;
 begin
   inherited Create(AParentScene);
 
@@ -1133,16 +1412,20 @@ begin
   FOriginalGeometry := AOriginalGeometry;
   FOriginalState := AOriginalState;
 
-  if ParentInfo <> nil then
+  AssociateGeometryState(FOriginalGeometry, FOriginalState);
+  AssociateGeometryStateNeverProxied(FOriginalGeometry, FOriginalState);
+
+  PI := ParentInfo;
+  if PI <> nil then
   begin
-    FGeometryParentNodeName := ParentInfo^.Node.X3DName;
-    ParentInfo := ParentInfo^.ParentInfo;
-    if ParentInfo <> nil then
+    FGeometryParentNodeName := PI^.Node.X3DName;
+    PI := PI^.ParentInfo;
+    if PI <> nil then
     begin
-      FGeometryGrandParentNodeName := ParentInfo^.Node.X3DName;
-      ParentInfo := ParentInfo^.ParentInfo;
-      if ParentInfo <> nil then
-        FGeometryGrandGrandParentNodeName := ParentInfo^.Node.X3DName;
+      FGeometryGrandParentNodeName := PI^.Node.X3DName;
+      PI := PI^.ParentInfo;
+      if PI <> nil then
+        FGeometryGrandGrandParentNodeName := PI^.Node.X3DName;
     end;
   end;
 
@@ -1156,9 +1439,132 @@ begin
   FreeAndNil(FShadowVolumes);
   FreeProxy;
   FreeAndNil(FNormals);
-  FreeAndNil(FOriginalState);
+  if FOriginalState <> nil then // when exception occurs in constructor, may be nil
+  begin
+    UnAssociateGeometryState(FOriginalGeometry, FOriginalState);
+    UnAssociateGeometryStateNeverProxied(FOriginalGeometry, FOriginalState);
+    FreeAndNil(FOriginalState);
+  end;
   FreeOctreeTriangles;
   inherited;
+end;
+
+procedure TShape.AssociateGeometryState(
+  const AGeometry: TAbstractGeometryNode;
+  const AState: TX3DGraphTraverseState);
+begin
+  if AGeometry <> nil then
+  begin
+    AssociateNode(AGeometry);
+    if (AGeometry.ColorField <> nil) and
+       (AGeometry.ColorField.Value <> nil) then
+      AssociateNode(AGeometry.ColorField.Value);
+    if (AGeometry.CoordField <> nil) and
+       (AGeometry.CoordField.Value <> nil) then
+      AssociateNode(AGeometry.CoordField.Value);
+    if (AGeometry.TexCoordField <> nil) and
+       (AGeometry.TexCoordField.Value <> nil) and
+       { TODO: This workarounds assertion failure in UnAssociateNode
+         when using shadow maps on a primitive, like Sphere.
+         Reproducible by view3dscene (open and close
+         demo-models/shadow_maps/primitives.x3dv )
+         and automatic tests (when TTestOpeningAndRendering3D.TestScene
+         opens and closes tests/data/warning_when_new_node_as_shadow_map_light.x3dv ).
+         The cause is unknown.
+         But in any case, associating with TMultiTextureCoordinateNode
+         is not really useful (we should associate with children of it). }
+       (not (AGeometry.TexCoordField.Value is TMultiTextureCoordinateNode)) then
+      AssociateNode(AGeometry.TexCoordField.Value);
+  end;
+end;
+
+procedure TShape.AssociateGeometryStateNeverProxied(
+  const AGeometry: TAbstractGeometryNode;
+  const AState: TX3DGraphTraverseState);
+var
+  I: Integer;
+begin
+  if AState <> nil then
+  begin
+    if AState.ShapeNode <> nil then
+    begin
+      AssociateNode(AState.ShapeNode);
+      if AState.ShapeNode.Material <> nil then
+        AssociateNode(AState.ShapeNode.Material);
+    end;
+    if AState.ClipPlanes <> nil then
+      for I := 0 to AState.ClipPlanes.Count - 1 do
+        AssociateNode(AState.ClipPlanes[I].Node);
+  end;
+end;
+
+procedure TShape.UnAssociateGeometryState(
+  const AGeometry: TAbstractGeometryNode;
+  const AState: TX3DGraphTraverseState);
+begin
+  if AGeometry <> nil then
+  begin
+    UnAssociateNode(AGeometry);
+    if (AGeometry.ColorField <> nil) and
+       (AGeometry.ColorField.Value <> nil) then
+      UnAssociateNode(AGeometry.ColorField.Value);
+    if (AGeometry.CoordField <> nil) and
+       (AGeometry.CoordField.Value <> nil) then
+      UnAssociateNode(AGeometry.CoordField.Value);
+    if (AGeometry.TexCoordField <> nil) and
+       (AGeometry.TexCoordField.Value <> nil) and
+       (not (AGeometry.TexCoordField.Value is TMultiTextureCoordinateNode)) then
+      UnAssociateNode(AGeometry.TexCoordField.Value);
+  end;
+end;
+
+procedure TShape.UnAssociateGeometryStateNeverProxied(
+  const AGeometry: TAbstractGeometryNode;
+  const AState: TX3DGraphTraverseState);
+var
+  I: Integer;
+begin
+  if AState <> nil then
+  begin
+    if AState.ShapeNode <> nil then
+    begin
+      UnAssociateNode(AState.ShapeNode);
+      if AState.ShapeNode.Material <> nil then
+        UnAssociateNode(AState.ShapeNode.Material);
+    end;
+    if AState.ClipPlanes <> nil then
+      for I := 0 to AState.ClipPlanes.Count - 1 do
+        UnAssociateNode(AState.ClipPlanes[I].Node);
+  end;
+end;
+
+procedure TShape.AssociateProxyGeometryState(const OverTriangulate: Boolean);
+begin
+  Assert(FGeometry[OverTriangulate] <> nil);
+  Assert(FState   [OverTriangulate] <> nil);
+
+  { For speed, do not even call AssociateGeometryState
+    when the proxy is equal to actual nodes.
+    This way in an usual case, a geometry node will have only 1 associated shape,
+    which is best for memory usage. }
+
+  if (FGeometry[OverTriangulate] <> FOriginalGeometry) or
+     (FState   [OverTriangulate] <> FOriginalState) then
+  begin
+    AssociateGeometryState(FGeometry[OverTriangulate], FState[OverTriangulate]);
+  end;
+end;
+
+procedure TShape.UnAssociateProxyGeometryState(const OverTriangulate: Boolean);
+begin
+  Assert(FGeometry[OverTriangulate] <> nil);
+  Assert(FState   [OverTriangulate] <> nil);
+
+  if (FGeometry[OverTriangulate] <> FOriginalGeometry) or
+     (FState   [OverTriangulate] <> FOriginalState) then
+  begin
+    UnAssociateGeometryState(FGeometry[OverTriangulate], FState[OverTriangulate]);
+  end;
 end;
 
 procedure TShape.FreeOctreeTriangles;
@@ -1184,7 +1590,7 @@ begin
     FOctreeTriangles := CreateTriangleOctree(
       OverrideOctreeLimits(FTriangleOctreeLimits),
       InternalTriangleOctreeProgressTitle);
-    if Log and LogChanges then
+    if LogChanges then
       WritelnLog('X3D changes (octree)', Format(
         'Shape(%s).OctreeTriangles updated', [PointerToStr(Self)]));
   end;
@@ -1283,14 +1689,13 @@ var
   S: TX3DGraphTraverseState;
 
   function MaterialOpacity: Single;
+  var
+    MatInfo: TMaterialInfo;
   begin
-    // TODO: maybe this should take S.ShapeNode.CommonSurfaceShader into account?
-    // And just use S.MaterialInfo or such?
-    if G is TAbstractGeometryNode_1 then
-      Result := S.VRML1State.Material.MaterialInfo(0).Opacity else
-    if (S.ShapeNode <> nil) and
-       (S.ShapeNode.Material <> nil) then
-      Result := S.ShapeNode.Material.Opacity else
+    MatInfo := S.MaterialInfo;
+    if MatInfo <> nil then
+      Result := MatInfo.Opacity
+    else
       Result := 1;
   end;
 
@@ -1298,8 +1703,11 @@ var
   var
     Tex: TAbstractTextureNode;
     SurfaceShader: TCommonSurfaceShaderNode;
+    MatPhong: TMaterialNode;
+    MatPhysical: TPhysicalMaterialNode;
+    MatOne: TAbstractOneSidedMaterialNode;
   begin
-    Tex := S.DiffuseAlphaTexture;
+    Tex := S.MainTexture;
 
     if Tex is TMultiTextureNode then
       Result := TMultiTextureNode(Tex).FdTexture.Count
@@ -1315,9 +1723,15 @@ var
        (S.ShapeNode.Appearance <> nil) then
     begin
       // CommonSurfaceShader can only be non-nil if Appearance is non-nil
+      {$warnings off} // using deprecated to keep backward compatibility
       SurfaceShader := S.ShapeNode.CommonSurfaceShader;
+      {$warnings on}
       if SurfaceShader <> nil then
       begin
+        if SurfaceShader.MultiDiffuseAlphaTexture <> nil then
+          MaxVar(Result, SurfaceShader.DiffuseTextureCoordinatesId + 1); // TODO test X3DOM/InstantReality are they using DiffuseTextureCoordinatesId in this case
+        if SurfaceShader.DiffuseTexture <> nil then
+          MaxVar(Result, SurfaceShader.DiffuseTextureCoordinatesId + 1);
         if SurfaceShader.NormalTexture <> nil then
           MaxVar(Result, SurfaceShader.NormalTextureCoordinatesId + 1);
         if SurfaceShader.AmbientTexture <> nil then
@@ -1327,8 +1741,38 @@ var
         if SurfaceShader.ShininessTexture <> nil then
           MaxVar(Result, SurfaceShader.ShininessTextureCoordinatesId + 1);
       end else
-      if S.ShapeNode.Appearance.NormalMap <> nil then
-        MaxVar(Result, 1);
+      begin
+        if S.ShapeNode.Appearance.NormalMap <> nil then
+          MaxVar(Result, 1);
+        if S.ShapeNode.Appearance.Material is TAbstractOneSidedMaterialNode then
+        begin
+          MatOne := TAbstractOneSidedMaterialNode(S.ShapeNode.Appearance.Material);
+          if MatOne.EmissiveTexture <> nil then
+            MaxVar(Result, MatOne.EmissiveTextureChannel + 1);
+          if MatOne.NormalTexture <> nil then
+            MaxVar(Result, MatOne.NormalTextureChannel + 1);
+        end;
+        if S.ShapeNode.Appearance.Material is TMaterialNode then
+        begin
+          MatPhong := TMaterialNode(S.ShapeNode.Appearance.Material);
+          if MatPhong.AmbientTexture <> nil then
+            MaxVar(Result, MatPhong.AmbientTextureChannel + 1);
+          if MatPhong.DiffuseTexture <> nil then
+            MaxVar(Result, MatPhong.DiffuseTextureChannel + 1);
+          if MatPhong.ShininessTexture <> nil then
+            MaxVar(Result, MatPhong.ShininessTextureChannel + 1);
+          if MatPhong.SpecularTexture <> nil then
+            MaxVar(Result, MatPhong.SpecularTextureChannel + 1);
+        end;
+        if S.ShapeNode.Appearance.Material is TPhysicalMaterialNode then
+        begin
+          MatPhysical := TPhysicalMaterialNode(S.ShapeNode.Appearance.Material);
+          if MatPhysical.BaseTexture <> nil then
+            MaxVar(Result, MatPhysical.BaseTextureChannel + 1);
+          if MatPhysical.MetallicRoughnessTexture <> nil then
+            MaxVar(Result, MatPhysical.MetallicRoughnessTextureChannel + 1);
+        end;
+      end;
     end;
 
     if OriginalGeometry.FontTextureNode <> nil then
@@ -1386,7 +1830,7 @@ end;
 
 procedure TShape.FreeProxy;
 begin
-  if Log and LogChanges and
+  if LogChanges and
     { OriginalGeometry should always be <> nil, but just in case
       (e.g. running from destructor, or with bad state) check. }
     (OriginalGeometry <> nil) and
@@ -1397,6 +1841,11 @@ begin
     ( (FState[true ] <> OriginalState) and (FState[true ] <> nil) )
     ) then
     WritelnLog('X3D changes', 'Releasing the Proxy geometry of ' + OriginalGeometry.ClassName);
+
+  if FGeometry[false] <> nil then
+    UnAssociateProxyGeometryState(false);
+  if FGeometry[true] <> nil then
+    UnAssociateProxyGeometryState(true);
 
   if FGeometry[false] <> OriginalGeometry then
   begin
@@ -1461,6 +1910,13 @@ begin
   if Changes * [chGeometry, chGeometryVRML1State, chWireframe] <> [] then
     LocalGeometryChanged(false, false);
 
+  if Changes * [chBBox] <> [] then
+  begin
+    Validities := Validities - [svLocalBBox, svBBox];
+    if (Node <> nil) and (Node.Collision = scBox) then
+      FreeOctreeTriangles; // bbox changed, so simple octree based on bbox also changed
+  end;
+
   if not InactiveOnly then
     TCastleSceneCore(ParentScene).VisibleChangeHere([vcVisibleGeometry, vcVisibleNonGeometry]);
 end;
@@ -1509,10 +1965,13 @@ end;
 
 function TShape.OverrideOctreeLimits(
   const BaseLimits: TOctreeLimits): TOctreeLimits;
+{$ifndef CASTLE_SLIM_NODES}
 var
   Props: TKambiOctreePropertiesNode;
+{$endif}
 begin
   Result := BaseLimits;
+  {$ifndef CASTLE_SLIM_NODES}
   if (State.ShapeNode <> nil) and
      (State.ShapeNode.FdOctreeTriangles.Value <> nil) and
      (State.ShapeNode.FdOctreeTriangles.Value is TKambiOctreePropertiesNode) then
@@ -1520,6 +1979,7 @@ begin
     Props := TKambiOctreePropertiesNode(State.ShapeNode.FdOctreeTriangles.Value);
     Props.OverrideLimits(Result);
   end;
+  {$endif}
 end;
 
 procedure TShape.AddTriangleToOctreeProgress(Shape: TObject;
@@ -1537,7 +1997,7 @@ function TShape.CreateTriangleOctree(
 
   procedure LocalTriangulateBox(const Box: TBox3D);
 
-    procedure LocalTriangulateRect(constCoord: integer;
+    procedure LocalTriangulateRect(const constCoord: integer;
       const constCoordValue, x1, y1, x2, y2: Single);
     var
       Position, Normal: TTriangle3;
@@ -1579,12 +2039,16 @@ function TShape.CreateTriangleOctree(
       LocalTriangulateRect(I, Box.Data[0][I], Box.Data[0][XCoord], Box.Data[0][YCoord], Box.Data[1][XCoord], Box.Data[1][YCoord]);
       LocalTriangulateRect(I, Box.Data[1][I], Box.Data[0][XCoord], Box.Data[0][YCoord], Box.Data[1][XCoord], Box.Data[1][YCoord]);
     end;
+    { We have 12 triangles, DefTriangleOctreeLeafCapacity should be at least 12,
+      and tree root should remain leaf.
+      This should be a simple tree. }
+    Assert(Result.TreeRoot.IsLeaf);
   end;
 
 begin
   Result := TTriangleOctree.Create(ALimits, LocalBoundingBox);
   try
-    if DynamicGeometry then
+    if (Node <> nil) and (Node.Collision = scBox) then
     begin
       { Add 12 triangles for 6 cube (LocalBoundingBox) sides.
         No point in progress here, as this is always fast. }
@@ -1639,17 +2103,24 @@ end;
 procedure TShape.LocalGeometryChanged(
   const CalledFromParentScene, ChangedOnlyCoord: boolean);
 begin
-  if FOctreeTriangles <> nil then
+  if FLocalGeometryChangedCount <> 0 then
   begin
     if DisableAutoDynamicGeometry = 0 then
-    begin
-      if (not DynamicGeometry) and Log then
-        WritelnLog('Shape', Format('Shape with geometry %s detected as dynamic, will use more crude collision detection and more suitable rendering',
-          [OriginalGeometry.X3DType]));
-      DynamicGeometry := true;
-    end;
+      FDynamicGeometry := true;
+  end else
+    Inc(FLocalGeometryChangedCount); // for now, only increase FLocalGeometryChangedCount to 1
+
+  if (FOctreeTriangles <> nil) and
+     { Do not recreate octree if it's based only on our bounding box,
+       and our bounding box is stored in TShapeNode.Box (so it doesn't change when
+       geometry changes).
+       This is the case with glTF skinned animation. }
+     not (
+       (Node <> nil) and
+       (Node.Collision = scBox) and
+       (not Node.BBox.IsEmpty)
+     ) then
     FreeOctreeTriangles;
-  end;
 
   { Remove cached normals }
   FreeAndNil(FNormals);
@@ -1682,85 +2153,124 @@ end;
 
 function TShape.Transparent: boolean;
 begin
-  Result := Blending;
+  Result := AlphaChannel = acBlending;
 end;
 
 function TShape.Blending: boolean;
-
-  { All the "transparency" field values are greater than zero.
-    So the blending should be used when rendering.
-
-    Note that when "transparency" field is empty, then we assume
-    a default transparency (0) should be used. So AllMaterialsTransparent
-    is @false then (contrary to the strict definition of "all",
-    which should be true for empty sets). }
-  function AllMaterialsTransparent(const Node: TMaterialNode_1): boolean;
-  var
-    i: Integer;
-  begin
-    if Node.FdTransparency.Items.Count = 0 then
-      result := TMaterialInfo.DefaultTransparency > SingleEpsilon else
-    begin
-      for i := 0 to Node.FdTransparency.Items.Count-1 do
-        if Node.FdTransparency.Items.L[i] <= SingleEpsilon then
-          Exit(false);
-      result := true;
-    end;
-  end;
-
-var
-  SurfaceShader: TCommonSurfaceShaderNode;
-  M: TMaterialNode;
-  Tex: TAbstractTextureNode;
 begin
-  if State.ShapeNode <> nil then
-  begin
-    SurfaceShader := State.ShapeNode.CommonSurfaceShader;
-    if SurfaceShader <> nil then
-    begin
-      Result := SurfaceShader.Transparency > SingleEpsilon;
-    end else
-    begin
-      M := State.ShapeNode.Material;
-      Result := (M <> nil) and (M.FdTransparency.Value > SingleEpsilon);
-    end;
-  end else
-    { For VRML 1.0, there may be multiple materials on a node.
-      Some of them may be transparent, some not --- we arbitrarily
-      decide for now that AllMaterialsTransparent decides whether
-      blending should be used or not. We may change this in the
-      future to AnyMaterialsTransparent, since this will be more
-      consistent with X3D ColorRGBA treatment?
-
-      We do not try to split node into multiple instances.
-      This is difficult and memory-consuming task, so we just
-      depend on VRML author to split his geometry nodes if he
-      wants it.
-
-      Obviously, we also drop the idea of splitting the geometry
-      into separate triangles and deciding whether to use blending
-      for each separate triangle. Or to sort every separate triangle.
-      This would obviously get very very slow for models with lots
-      of triangles.  }
-    Result := AllMaterialsTransparent(State.VRML1State.Material);
-
-  if Geometry.InternalColorRGBA <> nil then
-    Result := true;
-
-  { If texture exists with full range alpha channel then use blending.
-    Note that State.Texture may be TMultiTextureNode --- that's Ok,
-    it has AlphaChannel = atFullRange
-    if any child has atFullRange. So it automatically works Ok too. }
-  Tex := State.DiffuseAlphaTexture;
-  if (Tex <> nil) and (Tex.AlphaChannelFinal = acBlending) then
-    Result := true;
-
-  Tex := OriginalGeometry.FontTextureNode;
-  if (Tex <> nil) and (Tex.AlphaChannelFinal = acBlending) then
-    Result := true;
+  Result := AlphaChannel = acBlending;
 end;
 
-procedure TShape.Traverse(Func: TShapeTraverseFunc;
+function TShape.AlphaChannel: TAlphaChannel;
+
+  function DetectAlphaBlending: boolean;
+
+    { All the "transparency" field values are greater than zero.
+      So the blending should be used when rendering.
+
+      Note that when "transparency" field is empty, then we assume
+      a default transparency (0) should be used. So AllMaterialsTransparent
+      is @false then (contrary to the strict definition of "all",
+      which should be true for empty sets). }
+    function AllMaterialsTransparent(const Node: TMaterialNode_1): boolean;
+    var
+      i: Integer;
+    begin
+      if Node.FdTransparency.Items.Count = 0 then
+        result := TMaterialInfo.DefaultTransparency > SingleEpsilon else
+      begin
+        for i := 0 to Node.FdTransparency.Items.Count-1 do
+          if Node.FdTransparency.Items.L[i] <= SingleEpsilon then
+            Exit(false);
+        result := true;
+      end;
+    end;
+
+  var
+    M: TMaterialInfo;
+    Tex: TAbstractTextureNode;
+  begin
+    if State.ShapeNode <> nil then
+    begin
+      M := State.MaterialInfo;
+      Result := (M <> nil) and (M.Transparency > SingleEpsilon);
+    end else
+      { For VRML 1.0, there may be multiple materials on a node.
+        Some of them may be transparent, some not --- we arbitrarily
+        decide for now that AllMaterialsTransparent decides whether
+        blending should be used or not. We may change this in the
+        future to AnyMaterialsTransparent, since this will be more
+        consistent with X3D ColorRGBA treatment?
+
+        We do not try to split node into multiple instances.
+        This is difficult and memory-consuming task, so we just
+        depend on VRML author to split his geometry nodes if he
+        wants it.
+
+        Obviously, we also drop the idea of splitting the geometry
+        into separate triangles and deciding whether to use blending
+        for each separate triangle. Or to sort every separate triangle.
+        This would obviously get very very slow for models with lots
+        of triangles.  }
+      Result := AllMaterialsTransparent(State.VRML1State.Material);
+
+    if Geometry.InternalColorRGBA <> nil then
+      Result := true;
+
+    { If texture exists with full range alpha channel then use blending.
+      Note that State.Texture may be TMultiTextureNode --- that's Ok,
+      it has AlphaChannel = atFullRange
+      if any child has atFullRange. So it automatically works Ok too. }
+    Tex := State.MainTexture;
+    if (Tex <> nil) and (Tex.AlphaChannelFinal = acBlending) then
+      Result := true;
+
+    Tex := OriginalGeometry.FontTextureNode;
+    if (Tex <> nil) and (Tex.AlphaChannelFinal = acBlending) then
+      Result := true;
+  end;
+
+  function DetectAlphaTest: Boolean;
+  var
+    TextureNode: TAbstractTextureNode;
+    FontTextureNode: TAbstractTexture2DNode;
+    TexturesAlphaChannel: TAlphaChannel;
+  begin
+    TextureNode := State.MainTexture;
+    FontTextureNode := OriginalGeometry.FontTextureNode;
+
+    { This works also for TextureNode being TMultiTextureNode,
+      since it has smartly calculated AlphaChannel based on children. }
+    TexturesAlphaChannel := acNone;
+    if TextureNode <> nil then
+      AlphaMaxVar(TexturesAlphaChannel, TextureNode.AlphaChannelFinal);
+    if FontTextureNode <> nil then
+      AlphaMaxVar(TexturesAlphaChannel, FontTextureNode.AlphaChannelFinal);
+    Result := TexturesAlphaChannel = acTest;
+  end;
+
+  { TODO: DetectAlphaBlending and DetectAlphaTest both look at alpha channel
+    of textures. They should share some part of a single implementation. }
+
+begin
+  { Check whether Appearance.alphaChannel field is set to something <> "AUTO".
+    This is the simplest option, in which we don't need to run our "auto detection"
+    below. }
+  if (State.ShapeNode <> nil) and
+     (State.ShapeNode.Appearance <> nil) and
+     (State.ShapeNode.Appearance.AlphaChannel <> acAuto) then
+    Exit(State.ShapeNode.Appearance.AlphaChannel);
+
+  if DetectAlphaBlending then
+    Exit(acBlending)
+  else
+  if DetectAlphaTest then
+    Exit(acTest)
+  else
+    Exit(acNone);
+end;
+
+procedure TShape.TraverseCore(const Func: TShapeTraverseFunc;
   const OnlyActive, OnlyVisible, OnlyCollidable: boolean);
 begin
   if ((not OnlyVisible) or Visible) and
@@ -1768,13 +2278,24 @@ begin
     Func(Self);
 end;
 
-function TShape.ShapesCount(
-  const OnlyActive, OnlyVisible, OnlyCollidable: boolean): Cardinal;
+procedure TShape.FastTransformUpdateCore(var AnythingChanged: Boolean;
+  const ParentTransform, ParentInvertedTransform: TMatrix4;
+  const ParentTransformScale: Single);
 begin
-  if ((not OnlyVisible) or Visible) and
-     ((not OnlyCollidable) or Collidable) then
-    Result := 1 else
-    Result := 0;
+  State.Transform := ParentTransform;
+  State.InvertedTransform := ParentInvertedTransform;
+  State.TransformScale := ParentTransformScale;
+
+  // Changed(false, [chTransform]);
+  // a bit faster:
+  Validities := Validities - [svBBox, svBoundingSphere];
+
+  AnythingChanged := true;
+end;
+
+function TShape.MaxShapesCountCore: Integer;
+begin
+  Result := 1;
 end;
 
 function TShape.Visible: boolean;
@@ -1881,7 +2402,7 @@ begin
        (FNormalsOverTriangulate = OverTriangulate)
      ) then
   begin
-    if Log and LogShapes then
+    if LogShapes then
       WritelnLog('Normals', 'Calculating shape smooth normals');
 
     { Free previous normals }
@@ -1913,7 +2434,7 @@ begin
        (FNormalsOverTriangulate = OverTriangulate)
      ) then
   begin
-    if Log and LogShapes then
+    if LogShapes then
       WritelnLog('Normals', 'Calculating shape flat normals');
 
     { Free previous normals }
@@ -1948,7 +2469,7 @@ begin
        (FNormalsCreaseAngle = CreaseAngle)
      ) then
   begin
-    if Log and LogShapes then
+    if LogShapes then
       WritelnLog('Normals', 'Calculating shape CreaseAngle normals');
 
     { Free previous normals }
@@ -1970,8 +2491,10 @@ begin
   Result := FNormals;
 end;
 
-function TShape.EnumerateTextures(Enumerate: TEnumerateShapeTexturesFunction): Pointer;
+function TShape.EnumerateTextures(const Enumerate: TEnumerateShapeTexturesFunction): Pointer;
 
+  { Handle Tex being any TAbstractSingleTextureNode.
+    Ignores Tex = nil. }
   function HandleSingleTextureNode(Tex: TX3DNode): Pointer;
   begin
     if Tex is TAbstractTextureNode then
@@ -1981,6 +2504,18 @@ function TShape.EnumerateTextures(Enumerate: TEnumerateShapeTexturesFunction): P
   end;
 
   function HandleIDecls(IDecls: TX3DInterfaceDeclarationList): Pointer; forward;
+
+  function HandleIDecls(Nodes: TMFNode): Pointer;
+  var
+    I: Integer;
+  begin
+    Result := nil;
+    for I := 0 to Nodes.Count - 1 do
+    begin
+      Result := HandleIDecls(Nodes[I].InterfaceDeclarations);
+      if Result <> nil then Exit;
+    end;
+  end;
 
   function HandleIDecls(Nodes: TX3DNodeList): Pointer;
   var
@@ -1994,6 +2529,8 @@ function TShape.EnumerateTextures(Enumerate: TEnumerateShapeTexturesFunction): P
     end;
   end;
 
+  { Handle Tex being any TAbstractTextureNode.
+    Ignores Tex = nil case. }
   function HandleTextureNode(Tex: TX3DNode): Pointer;
   var
     I: Integer;
@@ -2002,23 +2539,34 @@ function TShape.EnumerateTextures(Enumerate: TEnumerateShapeTexturesFunction): P
 
     if Tex is TAbstractTextureNode then
     begin
-      { Texture node may use more texture nodes through it's "effects" field. }
-      Result := HandleIDecls(TAbstractTextureNode(Tex).FdEffects.Items);
-      if Result <> nil then Exit;
+      if Tex is TAbstractSingleTextureNode then
+      begin
+        { Texture node may use more texture nodes through it's "effects" field. }
+        Result := HandleIDecls(TAbstractSingleTextureNode(Tex).FdEffects);
+        if Result <> nil then Exit;
+      end;
 
       if Tex is TMultiTextureNode then
       begin
         Result := Enumerate(Self, TMultiTextureNode(Tex));
         if Result <> nil then Exit;
 
-        for I := 0 to TMultiTextureNode(Tex).FdTexture.Items.Count - 1 do
+        for I := 0 to TMultiTextureNode(Tex).FdTexture.Count - 1 do
         begin
-          Result := HandleSingleTextureNode(TMultiTextureNode(Tex).FdTexture.Items.Items[I]);
+          Result := HandleSingleTextureNode(TMultiTextureNode(Tex).FdTexture[I]);
           if Result <> nil then Exit;
         end;
       end else
         Result := HandleSingleTextureNode(Tex);
     end;
+  end;
+
+  procedure HandleEnvironmentLight(const EnvLight: TEnvironmentLightNode);
+  begin
+    Result := HandleSingleTextureNode(EnvLight.FdDiffuseTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleSingleTextureNode(EnvLight.FdSpecularTexture.Value);
+    if Result <> nil then Exit;
   end;
 
   { Scan IDecls for SFNode and MFNode fields, handling texture nodes inside. }
@@ -2044,7 +2592,7 @@ function TShape.EnumerateTextures(Enumerate: TEnumerateShapeTexturesFunction): P
           begin
             for J := 0 to TMFNode(UniformField).Count - 1 do
             begin
-              Result := HandleTextureNode(TMFNode(UniformField).Items[J]);
+              Result := HandleTextureNode(TMFNode(UniformField)[J]);
               if Result <> nil then Exit;
             end;
           end;
@@ -2088,6 +2636,34 @@ function TShape.EnumerateTextures(Enumerate: TEnumerateShapeTexturesFunction): P
     if Result <> nil then Exit;
   end;
 
+  function HandleOneSidedMaterial(const Mat: TAbstractOneSidedMaterialNode): Pointer;
+  begin
+    Result := HandleTextureNode(Mat.FdEmissiveTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(Mat.FdNormalTexture.Value);
+    if Result <> nil then Exit;
+  end;
+
+  function HandleMaterial(const Mat: TMaterialNode): Pointer;
+  begin
+    Result := HandleTextureNode(Mat.FdAmbientTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(Mat.FdDiffuseTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(Mat.FdShininessTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(Mat.FdSpecularTexture.Value);
+    if Result <> nil then Exit;
+  end;
+
+  function HandlePhysicalMaterial(const Mat: TPhysicalMaterialNode): Pointer;
+  begin
+    Result := HandleTextureNode(Mat.FdBaseTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(Mat.FdMetallicRoughnessTexture.Value);
+    if Result <> nil then Exit;
+  end;
+
 var
   SurfaceShader: TCommonSurfaceShaderNode;
   I: Integer;
@@ -2102,17 +2678,37 @@ begin
   begin
     App := State.ShapeNode.Appearance;
 
+    if App.FdMaterial.Value is TAbstractOneSidedMaterialNode then
+    begin
+      Result := HandleOneSidedMaterial(TAbstractOneSidedMaterialNode(App.FdMaterial.Value));
+      if Result <> nil then Exit;
+    end;
+
+    if App.FdMaterial.Value is TMaterialNode then
+    begin
+      Result := HandleMaterial(TMaterialNode(App.FdMaterial.Value));
+      if Result <> nil then Exit;
+    end;
+
+    if App.FdMaterial.Value is TPhysicalMaterialNode then
+    begin
+      Result := HandlePhysicalMaterial(TPhysicalMaterialNode(App.FdMaterial.Value));
+      if Result <> nil then Exit;
+    end;
+
     Result := HandleTextureNode(App.FdTexture.Value);
     if Result <> nil then Exit;
 
     Result := HandleTextureNode(App.FdNormalMap.Value);
     if Result <> nil then Exit;
 
-    HandleIDecls(App.FdShaders.Items);
-    HandleIDecls(App.FdEffects.Items);
+    HandleIDecls(App.FdShaders);
+    HandleIDecls(App.FdEffects);
 
     { CommonSurfaceShader can be non-nil only when App is non-nil }
+    {$warnings off} // using deprecated to keep backward compatibility
     SurfaceShader := State.ShapeNode.CommonSurfaceShader;
+    {$warnings on}
     if SurfaceShader <> nil then
     begin
       HandleCommonSurfaceShader(SurfaceShader);
@@ -2124,7 +2720,13 @@ begin
   if Lights <> nil then
     for I := 0 to Lights.Count - 1 do
     begin
-      Result := HandleIDecls(Lights.L[I].Node.FdEffects.Items);
+      if Lights.L[I].Node is TEnvironmentLightNode then
+      begin
+        HandleEnvironmentLight(TEnvironmentLightNode(Lights.L[I].Node));
+        if Result <> nil then Exit;
+      end;
+
+      Result := HandleIDecls(Lights.L[I].Node.FdEffects);
       if Result <> nil then Exit;
     end;
 
@@ -2187,6 +2789,8 @@ begin
     try
       FGeometry[OverTriangulate] := OriginalGeometry.Proxy(
         FState[OverTriangulate], OverTriangulate);
+      if FGeometry[OverTriangulate] <> nil then
+        AssociateProxyGeometryState(OverTriangulate);
     except
       { in case of trouble, remember to keep both
         FGeometry[OverTriangulate] and FState[OverTriangulate] nil.
@@ -2208,6 +2812,7 @@ begin
         Assert(FState[not OverTriangulate] = nil);
         FGeometry[not OverTriangulate] := FGeometry[OverTriangulate];
         FState   [not OverTriangulate] := FState   [OverTriangulate];
+        AssociateProxyGeometryState(not OverTriangulate);
       end;
     end else
     begin
@@ -2294,7 +2899,9 @@ var
              TexCoord.Data[1] := Arrays.TexCoord4D(0, VI2)^;
              TexCoord.Data[2] := Arrays.TexCoord4D(0, VI3)^;
            end;
+        {$ifndef COMPILER_CASE_ANALYSIS}
         else raise EInternalError.Create('Arrays.TexCoord[0].Dimensions? at TShape.localtriangulate');
+        {$endif}
       end;
     end else
       TexCoord := UnknownTexCoord;
@@ -2433,6 +3040,19 @@ begin
   Result := InternalMaterialProperty;
 end;
 
+procedure TShape.InternalBeforeChange;
+begin
+  FreeProxy;
+  UnAssociateGeometryState(FOriginalGeometry, FOriginalState);
+  UnAssociateGeometryStateNeverProxied(FOriginalGeometry, FOriginalState);
+end;
+
+procedure TShape.InternalAfterChange;
+begin
+  AssociateGeometryState(FOriginalGeometry, FOriginalState);
+  AssociateGeometryStateNeverProxied(FOriginalGeometry, FOriginalState);
+end;
+
 function TShape.InternalMaterialProperty: TMaterialProperty;
 var
   TextureUrl: string;
@@ -2462,10 +3082,11 @@ end;
 
 { TShapeTreeGroup -------------------------------------------------------- }
 
-constructor TShapeTreeGroup.Create(AParentScene: TObject);
+constructor TShapeTreeGroup.Create(const AParentScene: TX3DEventsEngine);
 begin
-  inherited Create(AParentScene);
+  inherited;
   FChildren := TShapeTreeList.Create(true);
+  FChildren.OnNotify := {$ifdef CASTLE_OBJFPC}@{$endif} ChildrenChanged;
 end;
 
 destructor TShapeTreeGroup.Destroy;
@@ -2474,7 +3095,19 @@ begin
   inherited;
 end;
 
-procedure TShapeTreeGroup.Traverse(Func: TShapeTraverseFunc;
+procedure TShapeTreeGroup.ChildrenChanged(Sender: TObject;
+  constref Item: TShapeTree; Action: TCollectionNotification);
+begin
+  if Action = cnAdded then
+    Item.FParent := Self;
+  if Action in [cnExtracted, cnRemoved] then
+    Item.FParent := nil;
+  InvalidateMaxShapesCount;
+  if ParentScene <> nil then
+    TCastleSceneCore(ParentScene).InternalIncShapesHash;
+end;
+
+procedure TShapeTreeGroup.TraverseCore(const Func: TShapeTraverseFunc;
   const OnlyActive, OnlyVisible, OnlyCollidable: boolean);
 var
   I: Integer;
@@ -2483,23 +3116,27 @@ begin
     FChildren.Items[I].Traverse(Func, OnlyActive, OnlyVisible, OnlyCollidable);
 end;
 
-function TShapeTreeGroup.ShapesCount(
-  const OnlyActive, OnlyVisible, OnlyCollidable: boolean): Cardinal;
+procedure TShapeTreeGroup.FastTransformUpdateCore(var AnythingChanged: Boolean;
+  const ParentTransform, ParentInvertedTransform: TMatrix4;
+  const ParentTransformScale: Single);
 var
   I: Integer;
-  ResultPart: Cardinal;
+begin
+  for I := 0 to FChildren.Count - 1 do
+    FChildren.Items[I].FastTransformUpdateCore(AnythingChanged,
+      ParentTransform, ParentInvertedTransform, ParentTransformScale);
+end;
+
+function TShapeTreeGroup.MaxShapesCountCore: Integer;
+var
+  I: Integer;
 begin
   Result := 0;
   for I := 0 to FChildren.Count - 1 do
-  begin
-    { Workaround for http://bugs.freepascal.org/bug_view_page.php?bug_id=14403
-      Without using ResultPart to hold partial result, this raises range check error. }
-    ResultPart := FChildren.Items[I].ShapesCount(OnlyActive, OnlyVisible, OnlyCollidable);
-    Result += ResultPart;
-  end;
+    Result += FChildren.Items[I].MaxShapesCount;
 end;
 
-function TShapeTreeGroup.EnumerateTextures(Enumerate: TEnumerateShapeTexturesFunction): Pointer;
+function TShapeTreeGroup.EnumerateTextures(const Enumerate: TEnumerateShapeTexturesFunction): Pointer;
 var
   I: Integer;
 begin
@@ -2534,7 +3171,7 @@ end;
 
 { TShapeTreeSwitch ------------------------------------------------------- }
 
-procedure TShapeTreeSwitch.Traverse(Func: TShapeTraverseFunc;
+procedure TShapeTreeSwitch.TraverseCore(const Func: TShapeTraverseFunc;
   const OnlyActive, OnlyVisible, OnlyCollidable: boolean);
 var
   WhichChoice: Integer;
@@ -2547,22 +3184,6 @@ begin
       Children.Items[WhichChoice].Traverse(Func, OnlyActive, OnlyVisible, OnlyCollidable);
   end else
     inherited;
-end;
-
-function TShapeTreeSwitch.ShapesCount(
-  const OnlyActive, OnlyVisible, OnlyCollidable: boolean): Cardinal;
-var
-  WhichChoice: Integer;
-begin
-  if OnlyActive then
-  begin
-    WhichChoice := SwitchNode.FdWhichChoice.Value;
-    if (WhichChoice >= 0) and
-       (WhichChoice < Children.Count) then
-      Result := Children.Items[WhichChoice].ShapesCount(OnlyActive, OnlyVisible, OnlyCollidable) else
-      Result := 0;
-  end else
-    Result := inherited;
 end;
 
 {$ifdef SHAPE_ITERATOR_SOPHISTICATED}
@@ -2600,7 +3221,7 @@ end;
 
 { TShapeTreeTransform ---------------------------------------------------- }
 
-constructor TShapeTreeTransform.Create(AParentScene: TObject);
+constructor TShapeTreeTransform.Create(const AParentScene: TX3DEventsEngine);
 begin
   inherited;
   FTransformState := TX3DGraphTraverseState.Create;
@@ -2608,8 +3229,69 @@ end;
 
 destructor TShapeTreeTransform.Destroy;
 begin
+  if FTransformNode <> nil then
+    UnAssociateNode(FTransformNode);
   FreeAndNil(FTransformState);
   inherited;
+end;
+
+procedure TShapeTreeTransform.SetTransformNode(const Value: TX3DNode);
+begin
+  if FTransformNode <> Value then
+  begin
+    if FTransformNode <> nil then
+      UnAssociateNode(FTransformNode);
+    FTransformNode := Value;
+    if FTransformNode <> nil then
+      AssociateNode(FTransformNode);
+  end;
+end;
+
+procedure TShapeTreeTransform.FastTransformUpdate(var AnythingChanged: Boolean);
+begin
+  FastTransformUpdateCore(AnythingChanged,
+    FTransformState.Transform,
+    FTransformState.InvertedTransform,
+    FTransformState.TransformScale
+  );
+end;
+
+procedure TShapeTreeTransform.FastTransformUpdateCore(var AnythingChanged: Boolean;
+  const ParentTransform, ParentInvertedTransform: TMatrix4;
+  const ParentTransformScale: Single);
+var
+  NewTransform, NewInvertedTransform: TMatrix4;
+  NewTransformScale: Single;
+  T: TTransformNode;
+begin
+  NewTransform := ParentTransform;
+  NewInvertedTransform := ParentInvertedTransform;
+  NewTransformScale := ParentTransformScale;
+
+  { Keep FTransformState up-to-date.
+    This is not necessary when OptimizeExtensiveTransformations = true,
+    so we don't do it to conserve speed. }
+  if not OptimizeExtensiveTransformations then
+  begin
+    FTransformState.Transform := ParentTransform;
+    FTransformState.InvertedTransform := ParentInvertedTransform;
+    FTransformState.TransformScale := ParentTransformScale;
+  end;
+
+  if FTransformNode is TTransformNode then
+  begin
+    T := TTransformNode(FTransformNode);
+    TransformMatricesMult(NewTransform, NewInvertedTransform,
+      T.Center,
+      T.Rotation,
+      T.Scale,
+      T.ScaleOrientation,
+      T.Translation);
+    NewTransformScale := NewTransformScale * Approximate3DScale(T.Scale);
+  end;
+
+  inherited FastTransformUpdateCore(AnythingChanged,
+    NewTransform, NewInvertedTransform, NewTransformScale);
 end;
 
 { TShapeTreeLOD ------------------------------------------------------- }
@@ -2652,29 +3334,17 @@ begin
     ( (Children.Count > 0) and (Result < Cardinal(Children.Count)) ) );
 end;
 
-procedure TShapeTreeLOD.Traverse(Func: TShapeTraverseFunc;
+procedure TShapeTreeLOD.TraverseCore(const Func: TShapeTraverseFunc;
   const OnlyActive, OnlyVisible, OnlyCollidable: boolean);
 begin
   if Children.Count > 0 then
   begin
     if OnlyActive then
       { Now we know that Level < Children.Count, no need to check it. }
-      Children.Items[Level].Traverse(Func, OnlyActive, OnlyVisible, OnlyCollidable) else
+      Children.Items[Level].Traverse(Func, OnlyActive, OnlyVisible, OnlyCollidable)
+    else
       inherited;
   end;
-end;
-
-function TShapeTreeLOD.ShapesCount(
-  const OnlyActive, OnlyVisible, OnlyCollidable: boolean): Cardinal;
-begin
-  if Children.Count > 0 then
-  begin
-    if OnlyActive then
-      { Now we know that Level < Children.Count, no need to check it. }
-      Result := Children.Items[Level].ShapesCount(OnlyActive, OnlyVisible, OnlyCollidable) else
-      Result := inherited;
-  end else
-    Result := 0;
 end;
 
 {$ifdef SHAPE_ITERATOR_SOPHISTICATED}
@@ -2695,20 +3365,26 @@ end;
 
 { TProximitySensorInstance ---------------------------------------------- }
 
-procedure TProximitySensorInstance.Traverse(Func: TShapeTraverseFunc;
+procedure TProximitySensorInstance.TraverseCore(const Func: TShapeTraverseFunc;
   const OnlyActive, OnlyVisible, OnlyCollidable: boolean);
 begin
   { Nothing to do: no geometry shapes, no children here }
 end;
 
-function TProximitySensorInstance.ShapesCount(const OnlyActive: boolean;
-  const OnlyVisible: boolean = false;
-  const OnlyCollidable: boolean = false): Cardinal;
+function TProximitySensorInstance.MaxShapesCountCore: Integer;
 begin
+  { This is not a TShape instance, and has no TShape children. }
   Result := 0;
 end;
 
-function TProximitySensorInstance.EnumerateTextures(Enumerate: TEnumerateShapeTexturesFunction): Pointer;
+procedure TProximitySensorInstance.FastTransformUpdateCore(var AnythingChanged: Boolean;
+  const ParentTransform, ParentInvertedTransform: TMatrix4;
+  const ParentTransformScale: Single);
+begin
+  { Nothing to do: This is not a TShape instance, and has no TShape children. }
+end;
+
+function TProximitySensorInstance.EnumerateTextures(const Enumerate: TEnumerateShapeTexturesFunction): Pointer;
 begin
   { Nothing to do: no geometry shapes, no children here }
   Result := nil;
@@ -2721,20 +3397,26 @@ end;
 
 { TVisibilitySensorInstance ---------------------------------------------- }
 
-procedure TVisibilitySensorInstance.Traverse(Func: TShapeTraverseFunc;
+procedure TVisibilitySensorInstance.TraverseCore(const Func: TShapeTraverseFunc;
   const OnlyActive, OnlyVisible, OnlyCollidable: boolean);
 begin
   { Nothing to do: no geometry shapes, no children here }
 end;
 
-function TVisibilitySensorInstance.ShapesCount(const OnlyActive: boolean;
-  const OnlyVisible: boolean = false;
-  const OnlyCollidable: boolean = false): Cardinal;
+procedure TVisibilitySensorInstance.FastTransformUpdateCore(var AnythingChanged: Boolean;
+  const ParentTransform, ParentInvertedTransform: TMatrix4;
+  const ParentTransformScale: Single);
 begin
+  { Nothing to do: This is not a TShape instance, and has no TShape children. }
+end;
+
+function TVisibilitySensorInstance.MaxShapesCountCore: Integer;
+begin
+  { This is not a TShape instance, and has no TShape children. }
   Result := 0;
 end;
 
-function TVisibilitySensorInstance.EnumerateTextures(Enumerate: TEnumerateShapeTexturesFunction): Pointer;
+function TVisibilitySensorInstance.EnumerateTextures(const Enumerate: TEnumerateShapeTexturesFunction): Pointer;
 begin
   { Nothing to do: no geometry shapes, no children here }
   Result := nil;
@@ -2774,6 +3456,8 @@ end;
   (as this is the bottleneck of the naive version, since List is potentially
   resized on adding each new shape) outperforms the sophisticated algorithm.
 
+  Later: We also improved the unsophisticated performance using CachedChildrenList.
+
   So right now we're back to simple version. Maybe the "sophisticated"
   implementation will be restored some day... Just define
   SHAPE_ITERATOR_SOPHISTICATED. }
@@ -2811,7 +3495,7 @@ begin
     Result := (Current <> nil);
 end;
 
-constructor TShapeTreeIterator.Create(Tree: TShapeTree;
+constructor TShapeTreeIterator.Create(const Tree: TShapeTree;
   const OnlyActive, OnlyVisible, OnlyCollidable: boolean);
 begin
   inherited Create;
@@ -2915,17 +3599,16 @@ end;
 
 {$else SHAPE_ITERATOR_SOPHISTICATED}
 
-constructor TShapeTreeIterator.Create(Tree: TShapeTree;
+constructor TShapeTreeIterator.Create(const Tree: TShapeTree;
   const OnlyActive, OnlyVisible, OnlyCollidable: boolean);
 begin
   inherited Create;
-  List := TShapeList.Create(Tree, OnlyActive, OnlyVisible, OnlyCollidable);
+  List := Tree.TraverseList(OnlyActive, OnlyVisible, OnlyCollidable);
   CurrentIndex := -1;
 end;
 
 destructor TShapeTreeIterator.Destroy;
 begin
-  FreeAndNil(List);
   inherited;
 end;
 
@@ -2946,29 +3629,25 @@ begin
   inherited Create(false);
 end;
 
-constructor TShapeList.Create(Tree: TShapeTree;
+constructor TShapeList.Create(const Tree: TShapeTree;
   const OnlyActive, OnlyVisible, OnlyCollidable: boolean);
-var
-  AddedCount: Integer;
 
-  procedure AddToList(Shape: TShape);
+  procedure AddToList(const Shape: TShape);
   begin
-    Items[AddedCount] := Shape;
-    Inc(AddedCount);
+    Add(Shape);
   end;
 
 begin
   Create;
-
-  { We know exactly how many shapes are present. So set Count once,
-    calculating by ShapesCount. This will be faster than resizing
-    in each AddToList. (Confirmed e.g. by profiling animate_3d_model_by_code_2). }
-  AddedCount := 0;
-  Count := Tree.ShapesCount(OnlyActive, OnlyVisible, OnlyCollidable);
-
+  { Set Capacity, to make following operations faster.
+    Note that we use MaxShapesCount instead of ShapesCount,
+    since MaxShapesCount is usually instant.
+    Testcase of speedup: e.g. profiling animate_3d_model_by_code_2. }
+  Capacity := Tree.MaxShapesCount;
+  { This method uses Tree.Traverse that uses Tree.TraverseList that creates a list,
+    iterates over it, and here we add results to another list...
+    This is clearly a waste of time. That's why this method is deprecated. }
   Tree.Traverse(@AddToList, OnlyActive, OnlyVisible, OnlyCollidable);
-
-  Assert(AddedCount = Count);
 end;
 
 type
@@ -3049,7 +3728,15 @@ begin
       Note that we assume X3D exporter from Blender >= 2.57.
       Earlier Blender X3D exporters were a little different (it seems,
       probably because of mesh splitting added in 2.57),
-      we don't handle them. }
+      we don't handle them.
+
+      This also works for glTF exporter in Blender 2.82a,
+      imported to X3D nodes by CGE.
+      In this case, the name comes from Blender mesh name (not Blender object name),
+      and has no prefixes/suffixes.
+      It is still in GeometryGrandGrandParentNodeName, because of how
+      X3DLoadInternalGltf organizes data.
+    }
 
     // not needed:
     // BlenderMeshName := PrefixRemove('ME_', GeometryGrandParentNodeName, false);

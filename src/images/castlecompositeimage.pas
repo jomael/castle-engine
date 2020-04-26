@@ -84,7 +84,7 @@ type
         which means that one axis seems reverted when you want OpenGL right-handed
         coord system (like
         OpenGL, see http://opengl.org/registry/specs/ARB/texture_cube_map.txt).
-        See [http://castle-engine.sourceforge.net/x3d_implementation_status.php#section_dds]
+        See [https://castle-engine.io/x3d_implementation_status.php#section_dds]
         for more. }
       TDDSCubeMapSide = (
         dcsPositiveX,
@@ -183,10 +183,11 @@ type
       so make sure that you provide at least one of these parameters.
       @raises(EInvalidCompositeImage In case of any error in the file data.) }
     procedure LoadFromStream(Stream: TStream; const URL: string;
-      MimeType: string = '');
+      MimeType: string = '';
+      const Options: TLoadImageOptions = []);
 
     { Load composite (KTX or DDS) image from this URL. }
-    procedure LoadFromFile(URL: string);
+    procedure LoadFromFile(URL: string; const Options: TLoadImageOptions = []);
 
     procedure SaveToStream(Stream: TStream; const MimeType: string);
     procedure SaveToFile(const URL: string);
@@ -210,10 +211,10 @@ type
       Normal loading of 3D composite textures creates single TCastleImage (using Depth
       possibly > 1) for each mipmap level. Such TCastleImage with depth
       is comfortable if you want to load this 3d texture into OpenGL
-      (as then the image data is just a continous memory area,
+      (as then the image data is just a continuous memory area,
       loadable by glTexImage3d). But it's not comfortable if you want
       to display it using some 2D GUI. For example, it's not comfortable
-      for image viewer like glViewImage.
+      for image viewer like castle-view-image.
 
       So this method will convert such TCastleImage instances (with Depth > 1)
       into a sequence of TCastleImage instances all with Depth = 1.
@@ -316,11 +317,15 @@ begin
 end;
 
 procedure TCompositeImage.LoadFromStream(Stream: TStream; const URL: string;
-  MimeType: string);
+  MimeType: string;
+  const Options: TLoadImageOptions = []);
 var
   Handler: TCompositeFormatHandler;
 begin
   Close;
+
+  if liFlipVertically in Options then
+    WritelnWarning('ImageTexture.flipVertically for DDS/KTX not implemented yet, the image will be inverted');
 
   if MimeType = '' then
     MimeType := URIMimeType(URL);
@@ -339,7 +344,8 @@ begin
   finally FreeAndNil(Handler) end;
 end;
 
-procedure TCompositeImage.LoadFromFile(URL: string);
+procedure TCompositeImage.LoadFromFile(URL: string;
+  const Options: TLoadImageOptions = []);
 var
   S: TStream;
 begin
@@ -347,7 +353,7 @@ begin
 
   S := Download(URL, [soForceMemoryStream]);
   try
-    LoadFromStream(S, URL);
+    LoadFromStream(S, URL, '', Options);
   finally FreeAndNil(S) end;
 end;
 

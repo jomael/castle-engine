@@ -20,15 +20,17 @@ unit CastleDynLib;
 
 interface
 
-uses
-  {$ifdef MSWINDOWS} Windows, {$endif}
-  {$ifdef UNIX} Unix, Dl, {$endif}
-  SysUtils
-  {$ifdef FPC} , DynLibs {$endif};
+uses SysUtils
+  {$ifdef FPC}
+    { With FPC, use cross-platform DynLibs unit. }
+    , DynLibs
+  {$else}
+    { With Delphi, use Windows functions directly. }
+    {$ifdef MSWINDOWS} , Windows {$endif}
+  {$endif};
 
 type
   TDynLibHandle = {$ifdef FPC} TLibHandle {$else} HModule {$endif};
-
 
 const
   { Invalid TDynLibHandle value (meaning : LoadLibrary failed) }
@@ -42,22 +44,25 @@ type
 
   (*Load functions from dynamic libraries.
 
-    I wrote my own class to handle dynamic libraries because:
+    This class allows to load functions from dynamic libraries (.dll on Windows,
+    .so on most Unix platforms, .dylib on macOS and iOS).
+
+    Features:
 
     @unorderedList(
-      @item(I wanted to have @link(Load) and @link(Symbol) functions that
+      @item(The @link(Load) and @link(Symbol) functions
         @italic(by default do error checking) (and raise necessary exceptions).)
 
-      @item(I wanted to have a field SymbolErrorBehaviour --- this lets me to
-        specify, @italic(once for all subsequent Symbol calls),
-        what error checking I want.
+      @item(The field SymbolErrorBehaviour allows to
+        specify @italic(once for all subsequent Symbol calls)
+        what error checking we want.
         Default is to check errors and raise exceptions.
         There is also a very usefull value reWarnAndContinue:
         it allows you to run program @italic(once) and see all symbols that
         are missing from dynamic library.)
 
-      @item(Also, the interface of this is OS-independent and works for
-        both FPC and Delphi, so you can avoid ugly $ifdefs in your code.)
+      @item(The interface of this is OS-independent and works for
+        both FPC and Delphi.)
     )
 
     Typical usage:
@@ -66,20 +71,17 @@ type
       var
         ALLibrary: TDynLib = nil;
       initialization
-        ALLibrary := TDynLib.Load('libopenal.so');
+        ALLibrary := TDynLib.Load('libopenal.so.1');
         { ... some calls to ALLibrary.Symbol() ... }
       finalization
         FreeAndNil(ALLibrary);
       end.
     #)
 
-    It is important that ALLibrary is initialized to nil (actually, writing
-    " = nil" is not necessary for a global variable) and that in finalization
-    you use Free(AndNil). This allows you to exit gracefully if library does not
+    It is important that ALLibrary is initialized to nil and that in finalization
+    you use FreeAndNil. This allows you to exit gracefully if library does not
     exist on the system and @link(Load) will raise an exception: ALLibrary will
-    stay then as nil and FreeAndNil(ALLibrary) will be a valid NOP.
-    Using FreeAndNil(ALLibrary) instead of ALLibrary.Free is just a good
-    practice.
+    stay then as nil.
   *)
   TDynLib = class
   private
@@ -152,77 +154,85 @@ type
 
 implementation
 
-uses CastleUtils;
+uses CastleUtils, CastleLog;
 
 constructor TDynLib.Create(const AName: string; AHandle: TDynLibHandle);
 begin
- inherited Create;
- FName := AName;
- FHandle := AHandle;
- Check(AHandle <> InvalidDynLibHandle,
-   'TDynLib can not be created with invalid DynLibHandle');
- SymbolErrorBehaviour := seRaise;
+  inherited Create;
+  FName := AName;
+  FHandle := AHandle;
+  Check(AHandle <> InvalidDynLibHandle,
+    'TDynLib can not be created with invalid DynLibHandle');
+  SymbolErrorBehaviour := seRaise;
 end;
 
 destructor TDynLib.Destroy;
 begin
- { Should we check here for errors after FreeLibrary ?
-   Well, this is finalization code so this is one place where strict error
-   checking (and raising exceptions on them) may be not so good idea.
-   For now I will not do it. }
- {$ifdef FPC} UnloadLibrary {$else} FreeLibrary {$endif} (FHandle);
-
- inherited;
+  if not FreeLibrary(FHandle) then
+    WriteLnWarning('Unloading library ' + Name + ' failed');
+  inherited;
 end;
 
 class function TDynLib.Load(const AName: string; RaiseExceptionOnError: boolean): TDynLib;
 
-  function LoadLibraryGlobally(AName: PChar): TDynLibHandle;
-  { TODO: under UNIX (Linux, more specifically, since I don't use this code
-    with any other UNIX yet) I must load with RTLD_GLOBAL, else GLU crashes
-    (it seems GLU requires that someone else loads GL symbols for it ?
-    I really don't know. TO BE FIXED.) }
-  begin
-   result:=
-     {$ifdef UNIX} TDynLibHandle( dlopen(AName,
-       { RTLD_GLOBAL cannot be used if you want to successfully open
-         libopenal.so on Android (tested necessity on Nexus 5).
-         It seems that RTLD_NOW or RTLD_LAZY don't matter.
-         Found thanks to mentions in
-         http://grokbase.com/t/gg/android-ndk/133mh6mk8b/unable-to-dlopen-libtest-so-cannot-load-library-link-image-1995-failed-to-link-libtest-so }
-       {$ifdef ANDROID} RTLD_NOW {$else} RTLD_LAZY or RTLD_GLOBAL {$endif}) );
-     {$else} LoadLibrary(AName);
-     {$endif}
-  end;
+  { On Unix, right now this simply uses LoadLibrary that calls dlopen(..., RTLD_LAZY)
+    (see in FPC rtl/unix/dynlibs.inc).
 
-var Handle: TDynLibHandle;
+    Historic notes:
+
+    - Long time ago we used here explicit
+        dlopen(.., RTLD_LAZY or RTLD_GLOBAL)
+      Reasons: loading GLU under Linux required RTLD_GLOBAL
+      (Maybe GLU requires that someone else loads GL symbols for it?)
+
+      Later, this workaround doesn't seem needed anymore,
+      and we actually don't load GLU using CastleDynLib.
+
+    - Note that on Android, RTLD_GLOBAL *cannot* be used
+      if you want to successfully open
+      libopenal.so on Android (tested necessity on Nexus 5).
+      And it seems that RTLD_NOW or RTLD_LAZY don't matter.
+      Found thanks to mentions in
+      http://grokbase.com/t/gg/android-ndk/133mh6mk8b/unable-to-dlopen-libtest-so-cannot-load-library-link-image-1995-failed-to-link-libtest-so
+
+    In summary, simply using LoadLibrary is perfect now.
+  }
+
+var
+  Handle: TDynLibHandle;
 begin
- Handle := LoadLibraryGlobally(PChar(AName));
- if Handle = InvalidDynLibHandle then
- begin
-  if RaiseExceptionOnError then
-   raise EDynLibError.Create('Can''t load library "' +AName+ '"'
-     {$ifdef UNIX} + ': ' + dlerror {$endif}) else
-   result := nil;
- end else
-  result := Self.Create(AName, Handle);
+  Handle :=
+    {$ifdef CASTLE_DISABLE_DYNAMIC_LIBRARIES} InvalidDynLibHandle
+    {$else} LoadLibrary(PChar(AName))
+    {$endif};
+  if Handle = InvalidDynLibHandle then
+  begin
+    if RaiseExceptionOnError then
+      raise EDynLibError.Create('Cannot load dynamic library "' +AName+ '"')
+    else
+      Result := nil;
+  end else
+    Result := Self.Create(AName, Handle);
 end;
 
 function TDynLib.Symbol(SymbolName: PChar): Pointer;
 
   function ErrStr: string;
-  begin result := 'Symbol "'+SymbolName+'" not found in library "'+Name+'"' end;
+  begin
+    Result := 'Symbol "' + SymbolName + '" not found in library "' + Name + '"';
+  end;
 
 begin
- result:= {$ifdef FPC} GetProcedureAddress {$else} GetProcAddress {$endif}
-   (FHandle, SymbolName);
- if result = nil then
-  case SymbolErrorBehaviour of
-   seRaise: raise EDynLibError.Create(ErrStr);
-   seReturnNil: ;
-   seWarnAndReturnNil: WarningWrite(ErrStr);
-   else raise EInternalError.Create('SymbolErrorBehaviour=?');
-  end;
+  Result := GetProcAddress(FHandle, SymbolName);
+  if Result = nil then
+    case SymbolErrorBehaviour of
+      seRaise: raise EDynLibError.Create(ErrStr);
+      seReturnNil: ;
+      seWarnAndReturnNil: WarningWrite(ErrStr);
+      {$ifndef COMPILER_CASE_ANALYSIS}
+      else raise EInternalError.Create('SymbolErrorBehaviour=?');
+      {$endif}
+    end;
 end;
 
 end.

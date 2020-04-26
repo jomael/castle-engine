@@ -1,3 +1,4 @@
+{%MainUnit castlecontrols.pas}
 {
   Copyright 2010-2018 Michalis Kamburelis.
 
@@ -16,7 +17,7 @@
 {$ifdef read_interface}
 
   { Fill a rectangle on screen with given color or theme image. }
-  TCastleRectangleControl = class(TUIControlSizeable)
+  TCastleRectangleControl = class(TCastleUserInterface)
   strict private
     FColor: TCastleColor;
     FThemeImage: TThemeImage;
@@ -27,10 +28,12 @@
     procedure SetUseThemeImage(const Value: boolean);
   public
     constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
     procedure Render; override;
     function Press(const Event: TInputPressRelease): boolean; override;
     function Release(const Event: TInputPressRelease): boolean; override;
     function Motion(const Event: TInputMotion): boolean; override;
+    function PropertySection(const PropertyName: String): TPropertySection; override;
 
     { Rectangle color. By default, opaque white. }
     property Color: TCastleColor read FColor write SetColor;
@@ -47,6 +50,10 @@
       "handled" by this control.  }
     property InterceptInput: boolean read FInterceptInput write FInterceptInput
       default false;
+
+  {$define read_interface_class}
+  {$I auto_generated_persistent_vectors/tcastlerectanglecontrol_persistent_vectors.inc}
+  {$undef read_interface_class}
   end;
 
 {$endif read_interface}
@@ -61,6 +68,18 @@ begin
   FColor := White;
   FThemeImage := tiWindow;
   FUseThemeImage := false;
+
+  {$define read_implementation_constructor}
+  {$I auto_generated_persistent_vectors/tcastlerectanglecontrol_persistent_vectors.inc}
+  {$undef read_implementation_constructor}
+end;
+
+destructor TCastleRectangleControl.Destroy;
+begin
+  {$define read_implementation_destructor}
+  {$I auto_generated_persistent_vectors/tcastlerectanglecontrol_persistent_vectors.inc}
+  {$undef read_implementation_destructor}
+  inherited;
 end;
 
 procedure TCastleRectangleControl.SetColor(const Value: TCastleColor);
@@ -68,7 +87,7 @@ begin
   if not TCastleColor.PerfectlyEquals(FColor, Value) then
   begin
     FColor := Value;
-    VisibleChange;
+    VisibleChange([chRender]);
   end;
 end;
 
@@ -77,7 +96,7 @@ begin
   if FThemeImage <> Value then
   begin
     FThemeImage := Value;
-    VisibleChange;
+    VisibleChange([chRender]);
   end;
 end;
 
@@ -86,7 +105,7 @@ begin
   if FUseThemeImage <> Value then
   begin
     FUseThemeImage := Value;
-    VisibleChange;
+    VisibleChange([chRender]);
   end;
 end;
 
@@ -94,9 +113,9 @@ procedure TCastleRectangleControl.Render;
 begin
   inherited;
   if FUseThemeImage then
-    Theme.Draw(ScreenRect, ThemeImage, UIScale, Color)
+    Theme.Draw(RenderRect, ThemeImage, UIScale, Color)
   else
-    DrawRectangle(ScreenRect, Color);
+    DrawRectangle(RenderRect, Color);
 end;
 
 function TCastleRectangleControl.Press(const Event: TInputPressRelease): boolean;
@@ -116,5 +135,18 @@ begin
   Result := inherited;
   Result := Result or InterceptInput;
 end;
+
+function TCastleRectangleControl.PropertySection(
+  const PropertyName: String): TPropertySection;
+begin
+  if (PropertyName = 'ColorPersistent') then
+    Result := psBasic
+  else
+    Result := inherited PropertySection(PropertyName);
+end;
+
+{$define read_implementation_methods}
+{$I auto_generated_persistent_vectors/tcastlerectanglecontrol_persistent_vectors.inc}
+{$undef read_implementation_methods}
 
 {$endif read_implementation}

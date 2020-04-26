@@ -3,7 +3,7 @@
   caption="Dragon:Castle Game Engine Demo"
   qualified_name="io.castleengine.castlespine"
   standalone_source="code/castle_spine.lpr"
-  game_units="Game"
+  game_units="GameInitialize"
   author="Michalis Kamburelis and Paweł Wojciechowicz"
   screen_orientation="landscape">
   <version value="1.1" code="12" />
@@ -59,6 +59,8 @@
       <!-- <service name="startapp" /> -->
       <!-- <service name="ogg_vorbis" /> -->
       <!-- <service name="vibrate" /> -->
+      <!-- <service name="read_external_storage" /> -->
+      <!-- <service name="write_external_storage" /> -->
     </services>
   </android>
   <ios>

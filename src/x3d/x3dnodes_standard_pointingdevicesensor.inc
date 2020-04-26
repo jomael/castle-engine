@@ -31,6 +31,8 @@
 
   { Base type for all pointing device sensors. }
   TAbstractPointingDeviceSensorNode = class(TAbstractSensorNode)
+  protected
+    procedure GroupBeforeTraverse(const State: TX3DGraphTraverseState; var WasPointingDeviceSensor: Boolean); override;
   public
     procedure CreateNode; override;
 
@@ -84,12 +86,35 @@
 
   { Base type for all touch-style pointing device sensors. }
   TAbstractTouchSensorNode = class(TAbstractPointingDeviceSensorNode)
+  strict private
+    FOnClick: TNotifyEvent;
+    procedure EventTouchTimeReceive(Event: TX3DEvent; AValue: TX3DField;
+      const Time: TX3DTime);
   public
     procedure CreateNode; override;
 
     { Event out } { }
     strict private FEventTouchTime: TSFTimeEvent;
     public property EventTouchTime: TSFTimeEvent read FEventTouchTime;
+
+    { Event generated when we register a "click" on the shapes within
+      the same group as this TouchSensor node.
+      The "click" definition corresponds to the X3D touchTime event generation.
+
+      Note that, in order to register clicks, TCastleScene must
+      be configured to process events (@link(TCastleSceneCore.ProcessEvents))
+      and be able to detect clicks on particular shapes
+      (@link(TCastleSceneCore.Spatial) should contain ssDynamicCollisions).
+      Usually you will initialize scene like this:
+
+      @longCode(#
+        MyScene := TCastleScene.Create(...);
+        MyScene.Load(...); // load X3D graph with TouchSensor node
+        MyScene.Spatial := [ssRendering, ssDynamicCollisions];
+        MyScene.ProcessEvents := true;
+      #)
+    }
+    property OnClick: TNotifyEvent read FOnClick write FOnClick;
 
     {$I auto_generated_node_helpers/x3dnodes_x3dtouchsensornode.inc}
   end;
@@ -122,7 +147,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdAxisRotation: TSFRotation;
     public property FdAxisRotation: TSFRotation read FFdAxisRotation;
@@ -175,7 +199,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdAxisRotation: TSFRotation;
     public property FdAxisRotation: TSFRotation read FFdAxisRotation;
@@ -221,7 +244,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdOffset: TSFRotation;
     public property FdOffset: TSFRotation read FFdOffset;
@@ -244,7 +266,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     { Event out } { }
     strict private FEventHitNormal_changed: TSFVec3fEvent;
@@ -303,6 +324,13 @@ begin
   AddEvent(FEventIsOver);
 end;
 
+procedure TAbstractPointingDeviceSensorNode.GroupBeforeTraverse(
+  const State: TX3DGraphTraverseState; var WasPointingDeviceSensor: Boolean);
+begin
+  inherited;
+  GroupBeforeTraverse_AddPointingDeviceSensor(Self, State, WasPointingDeviceSensor);
+end;
+
 procedure TAbstractPointingDeviceSensorNode.Activate(const Time: TX3DTime;
   const ATransform, AInvertedTransform: TMatrix4;
   const OverPoint: TVector3);
@@ -338,7 +366,15 @@ begin
   inherited;
 
   FEventTouchTime := TSFTimeEvent.Create(Self, 'touchTime', false);
+   EventTouchTime.AddNotification({$ifdef CASTLE_OBJFPC}@{$endif} EventTouchTimeReceive);
   AddEvent(FEventTouchTime);
+end;
+
+procedure TAbstractTouchSensorNode.EventTouchTimeReceive(
+  Event: TX3DEvent; AValue: TX3DField; const Time: TX3DTime);
+begin
+  if Assigned(FOnClick) then
+    FOnClick(Self);
 end;
 
 procedure TCylinderSensorNode.CreateNode;
@@ -373,13 +409,6 @@ end;
 class function TCylinderSensorNode.ClassX3DType: string;
 begin
   Result := 'CylinderSensor';
-end;
-
-class function TCylinderSensorNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 procedure TCylinderSensorNode.Activate(const Time: TX3DTime;
@@ -455,8 +484,7 @@ begin
     except
       on ETransformedResultInvalid do
       begin
-        if Log then
-          WritelnLog('Drag sensor', 'Sensor transformation matrix^-1 cannot transform points.');
+        WritelnLog('Drag sensor', 'Sensor transformation matrix^-1 cannot transform points.');
         Exit;
       end;
     end;
@@ -510,13 +538,6 @@ begin
   Result := 'PlaneSensor';
 end;
 
-class function TPlaneSensorNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
 procedure TPlaneSensorNode.Activate(const Time: TX3DTime;
   const ATransform, AInvertedTransform: TMatrix4;
   const OverPoint: TVector3);
@@ -561,8 +582,7 @@ begin
       PlaneY := TVector3.One[1];
       Transform := TMatrix4.Identity;
       InvertedTransform := TMatrix4.Identity;
-      if Log then
-        WritelnLog('Drag sensor', 'Sensor transformation matrix cannot transform directions.');
+      WritelnLog('Drag sensor', 'Sensor transformation matrix cannot transform directions.');
     end;
   end;
 
@@ -608,15 +628,14 @@ begin
 
         About using local coordinates with axisRotation:
         That's more difficult, see
-        http://castle-engine.sourceforge.net/x3d_implementation_pointingdevicesensor.php }
+        https://castle-engine.io/x3d_implementation_pointingdevicesensor.php }
       EventTrackPoint_changed.Send(
         InvertedTransform.MultPoint(Intersection), Time);
     except
       on ETransformedResultInvalid do
       begin
         EventTrackPoint_changed.Send(Intersection, Time);
-        if Log then
-          WritelnLog('Drag sensor', 'Sensor transformation matrix^-1 cannot transform points.');
+        WritelnLog('Drag sensor', 'Sensor transformation matrix^-1 cannot transform points.');
       end;
     end;
 
@@ -666,13 +685,6 @@ begin
   Result := 'SphereSensor';
 end;
 
-class function TSphereSensorNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
 procedure TSphereSensorNode.Activate(const Time: TX3DTime;
   const ATransform, AInvertedTransform: TMatrix4;
   const OverPoint: TVector3);
@@ -715,8 +727,7 @@ begin
     except
       on ETransformedResultInvalid do
       begin
-        if Log then
-          WritelnLog('Drag sensor', 'Sensor transformation matrix^-1 cannot transform points.');
+        WritelnLog('Drag sensor', 'Sensor transformation matrix^-1 cannot transform points.');
         Exit;
       end;
     end;
@@ -761,13 +772,6 @@ end;
 class function TTouchSensorNode.ClassX3DType: string;
 begin
   Result := 'TouchSensor';
-end;
-
-class function TTouchSensorNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 procedure RegisterPointingDeviceSensorNodes;

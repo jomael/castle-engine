@@ -22,24 +22,20 @@ interface
 
 uses Classes,
   CastleUIControls, CastleColors, CastleRectangles, CastleGLImages,
-  CastleImages;
+  CastleImages, CastleComponentSerialize;
 
 type
   { Fade out, flash, and similar screen effects
     done by blending screen with given color. }
-  TCastleFlashEffect = class(TUIControl)
+  TCastleFlashEffect = class(TCastleUserInterface)
   strict private
     FIntensity: Single;
     FColor: TCastleColor;
     FDark: boolean;
     FDuration: Single;
-    FWidth, FHeight: Cardinal;
-    FFullSize: boolean;
-    FImage, FImageAsGrayscale: TCastleImage;
-    FGLImage, FGLImageAsGrayscale: TGLImageCore;
-    FOwnsImage: boolean;
-    procedure SetImage(const Value: TCastleImage);
-    procedure ImageChanged;
+    FImage: TCastleImagePersistent;
+    FDrawableImageAsGrayscale: TDrawableImage;
+    procedure ImageChanged(Sender: TObject);
   public
     const
       DefaultDuration = 0.5;
@@ -47,68 +43,48 @@ type
     destructor Destroy; override;
     procedure Update(const SecondsPassed: Single; var HandleInput: boolean); override;
     procedure Render; override;
-    function Rect: TRectangle; override;
-    procedure GLContextOpen; override;
-    procedure GLContextClose; override;
 
     procedure Flash(const AColor: TCastleColor; const ADark: boolean);
     procedure Reset;
+
+    { Is the effect in-progress.
+      This is temporarily @true after calling @link(Flash).
+      It automatically ends (switches to @false) after the @link(Duration)
+      has passed, and when you call @link(Reset) explicitly. }
+    function Active: boolean;
   published
-    { Rectangle where the effect will be drawn.
-
-      When FullSize is @true (the default), the effect always fills
-      the whole parent (like TCastleWindow or TCastleControl,
-      if you just placed the TCastleFlashEffect on TCastleWindowCustom.Controls
-      or TCastleControlCustom.Controls),
-      and the values of Left, Bottom, Width, Height are ignored.
-
-      When FullSize is @false,
-      the values of Left, Bottom, Width, Height
-      define the size and position of the rectangle effect.
-
-      @seealso Rect
-
-      @groupBegin }
-    property FullSize: boolean read FFullSize write FFullSize default true;
-    property Width: Cardinal read FWidth write FWidth default 0;
-    property Height: Cardinal read FHeight write FHeight default 0;
-    { @groupEnd }
-
     property Duration: Single read FDuration write FDuration
       default DefaultDuration;
 
-    { Set this to non-nil to modulate the color with an image.
+    { Set this image to modulate the color with an image.
       The image is always stretched to cover our whole size. }
-    property Image: TCastleImage read FImage write SetImage;
+    property Image: TCastleImagePersistent read FImage;
 
-    { Free the @link(Image) instance automatically. }
-    property OwnsImage: boolean read FOwnsImage write FOwnsImage default false;
+    property FullSize default true;
   end;
 
 implementation
 
 uses SysUtils,
-  CastleUtils, CastleGLUtils;
+  CastleUtils, CastleGLUtils, CastleLog;
 
 constructor TCastleFlashEffect.Create(AOwner: TComponent);
 begin
   inherited;
   FDuration := DefaultDuration;
-  FFullSize := true;
+  FullSize := true;
+  FImage := TCastleImagePersistent.Create;
+  FImage.OnChange := @ImageChanged;
 end;
 
 destructor TCastleFlashEffect.Destroy;
 begin
-  if OwnsImage then
-    FreeAndNil(FImage) else
-    FImage := nil;
-  FreeAndNil(FImageAsGrayscale);
-  FreeAndNil(FGLImage);
-  FreeAndNil(FGLImageAsGrayscale);
+  FreeAndNil(FImage);
+  FreeAndNil(FDrawableImageAsGrayscale);
   inherited;
 end;
 
-procedure TCastleFlashEffect.SetImage(const Value: TCastleImage);
+procedure TCastleFlashEffect.ImageChanged(Sender: TObject);
 
   { For FadeColor, the image should be
     - white opaque where the effect IS applied
@@ -135,67 +111,25 @@ procedure TCastleFlashEffect.SetImage(const Value: TCastleImage);
             Clamped(Round(Img.Colors[X, Y, Z][3] * 255), Low(Byte), High(Byte));
   end;
 
+var
+  ImageAsGrayscale: TCastleImage;
 begin
-  if FImage <> Value then
+  VisibleChange([chRender]);
+
+  FreeAndNil(FDrawableImageAsGrayscale);
+
+  { TODO: It would be better to get rid of generating FDrawableImageAsGrayscale,
+    and also of limitation that FImage.Image must be TCastleImage
+    (cannot TEncodedImage). }
+
+  if FImage.Image <> nil then
   begin
-    if OwnsImage then FreeAndNil(FImage);
-    FreeAndNil(FImageAsGrayscale);
-
-    FImage := Value;
-    if FImage <> nil then
-      FImageAsGrayscale := CreateGrayscaleFromAlpha(FImage);
-
-    ImageChanged;
-  end;
-end;
-
-procedure TCastleFlashEffect.GLContextOpen;
-begin
-  inherited;
-  ImageChanged;
-end;
-
-procedure TCastleFlashEffect.GLContextClose;
-begin
-  FreeAndNil(FGLImage);
-  FreeAndNil(FGLImageAsGrayscale);
-  inherited;
-end;
-
-procedure TCastleFlashEffect.ImageChanged;
-begin
-  if GLInitialized then
-  begin
-    if FImage <> nil then
+    if FImage.Image is TCastleImage then
     begin
-      if FGLImage <> nil then
-        FGLImage.Load(FImage)
-      else
-        FGLImage := TGLImageCore.Create(FImage, true);
+      ImageAsGrayscale := CreateGrayscaleFromAlpha(FImage.Image as TCastleImage);
+      FDrawableImageAsGrayscale := TDrawableImage.Create(ImageAsGrayscale, true, true);
     end else
-      FreeAndNil(FGLImage); // make sure to free FGLImage when FImage is nil
-
-    if FImageAsGrayscale <> nil then
-    begin
-      if FGLImageAsGrayscale <> nil then
-        FGLImageAsGrayscale.Load(FImageAsGrayscale)
-      else
-        FGLImageAsGrayscale := TGLImageCore.Create(FImageAsGrayscale, true);
-    end else
-      FreeAndNil(FGLImageAsGrayscale); // make sure to free FGLImageAsGrayscale when FImageAsGrayscale is nil
-
-    VisibleChange;
-  end;
-end;
-
-function TCastleFlashEffect.Rect: TRectangle;
-begin
-  if FullSize then
-    Result := ParentRect else
-  begin
-    Result := Rectangle(Left, Bottom, Width, Height);
-    // applying UIScale on this is easy...
-    Result := Result.ScaleAround0(UIScale);
+      WritelnWarning('TODO: TCastleFlashEffect.Image must not be GPU compressed for now');
   end;
 end;
 
@@ -211,22 +145,26 @@ procedure TCastleFlashEffect.Update(const SecondsPassed: Single;
 begin
   inherited;
   if FIntensity > 0 then
-    FIntensity -= (1 / Duration) * SecondsPassed;
+    FIntensity := FIntensity - ((1 / Duration) * SecondsPassed);
 end;
 
 procedure TCastleFlashEffect.Render;
 var
-  FinalImage: TGLImageCore;
+  FinalImage: TDrawableImage;
   FinalColor: TCastleColor;
   SourceFactor: TBlendingSourceFactor;
   DestinationFactor: TBlendingDestinationFactor;
 begin
   inherited;
-  if FIntensity > 0 then
+  if Active then
   begin
     if FDark then
     begin
-      FinalImage := FGLImageAsGrayscale;
+      if FImage.Empty then
+        FinalImage := nil
+      else
+        FinalImage := FDrawableImageAsGrayscale;
+
       FinalColor := FadeDarkColor(FColor, FIntensity);
       { Constants below make resulting screen color = FinalColor * previous screen color.
         Note that as long as all components of Color are <= 1,
@@ -237,7 +175,11 @@ begin
       DestinationFactor := bdSrcColor;
     end else
     begin
-      FinalImage := FGLImage;
+      if FImage.Empty then
+        FinalImage := nil
+      else
+        FinalImage := FImage.DrawableImage;
+
       FinalColor := FadeColor(FColor, FIntensity);
       SourceFactor := bsSrcAlpha;
       DestinationFactor := bdOneMinusSrcAlpha;
@@ -249,9 +191,9 @@ begin
       FinalImage.Alpha := acBlending;
       FinalImage.BlendingSourceFactor := SourceFactor;
       FinalImage.BlendingDestinationFactor := DestinationFactor;
-      FinalImage.Draw(ScreenRect);
+      FinalImage.Draw(RenderRect);
     end else
-      DrawRectangle(ScreenRect, FinalColor, SourceFactor, DestinationFactor, true);
+      DrawRectangle(RenderRect, FinalColor, SourceFactor, DestinationFactor, true);
   end;
 end;
 
@@ -260,4 +202,11 @@ begin
   FIntensity := 0;
 end;
 
+function TCastleFlashEffect.Active: boolean;
+begin
+  Result := FIntensity > 0;
+end;
+
+initialization
+  RegisterSerializableComponent(TCastleFlashEffect, 'Flash Effect');
 end.

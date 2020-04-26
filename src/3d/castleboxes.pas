@@ -106,19 +106,18 @@ type
     only a single 3D point --- it's not empty, but all the sizes must be 0. }
   TBox3D = record
   strict private
-    function GetMin: TVector3; inline;
-    procedure SetMin(const Value: TVector3); inline;
-    function GetMax: TVector3; inline;
-    procedure SetMax(const Value: TVector3); inline;
+    function GetMin: TVector3;
+    procedure SetMin(const Value: TVector3);
+    function GetMax: TVector3;
+    procedure SetMax(const Value: TVector3);
   public
     Data: array [0..1] of TVector3;
 
-    const
-      { Special TBox3D value meaning "bounding box is empty".
-        This is different than just bounding box with zero sizes,
-        as bounding box with zero sizes still has some position.
-        Empty bounding box doesn't contain any portion of 3D space. }
-      Empty: TBox3D = (Data: ((Data: (0, 0, 0)), (Data: (-1, -1, -1))));
+    { Special TBox3D value meaning "bounding box is empty".
+      This is different than just bounding box with zero sizes,
+      as bounding box with zero sizes still has some position.
+      Empty bounding box doesn't contain any portion of 3D space. }
+    class function Empty: TBox3D; static;
 
     { Check is box empty.
       You can think of this function as "compare Box with TBox3D.Empty".
@@ -257,6 +256,10 @@ type
 
     { Make box larger, if necessary, to contain given Point. }
     procedure Include(const Point: TVector3); overload;
+    procedure Include(const Points: TVector3List); overload;
+
+    { Make a box that contains given points. }
+    class function FromPoints(const Points: TVector3List): TBox3D; static;
 
     { Three box sizes. }
     function Sizes: TVector3; deprecated 'use Size';
@@ -266,7 +269,7 @@ type
     function Size: TVector3;
 
     { Calculate eight corners of the box.}
-    procedure Corners(var AllPoints: TBoxCorners);
+    procedure Corners(out AllPoints: TBoxCorners);
     procedure GetAllPoints(AllPoints: PVector3Array); deprecated 'use Corners';
 
     { Transform the Box by given matrix.
@@ -382,7 +385,14 @@ type
     procedure BoundingSphere(
       var SphereCenter: TVector3; var SphereRadiusSqr: Single);
 
+    { Does it have any common part with another box.
+      Better use @link(Collides),
+      which has a name consistent with @link(TFloatRectangle.Collides),
+      this method will be deprecated some day and later removed. }
     function Collision(const Box2: TBox3D): boolean;
+
+    { Does it have any common part with another box. }
+    function Collides(const Box2: TBox3D): boolean;
 
     { Radius of the minimal sphere that contains this box.
       Sphere center is assumed to be in (0, 0, 0).
@@ -543,6 +553,11 @@ type
     class operator {$ifdef FPC}+{$else}Add{$endif} (const Box1, Box2: TBox3D): TBox3D;
     class operator {$ifdef FPC}+{$else}Add{$endif} (const B: TBox3D; const V: TVector3): TBox3D; deprecated 'use TBox3D.Translate. Operator is ambiguous (do we add a point, or translate?)';
     class operator {$ifdef FPC}+{$else}Add{$endif} (const V: TVector3; const B: TBox3D): TBox3D; deprecated 'use TBox3D.Translate. Operator is ambiguous (do we add a point, or translate?)';
+
+    { Convert from center and size vector. Empty box has size (-1,-1,-1). }
+    class function FromCenterSize(const ACenter, ASize: TVector3): TBox3D; static;
+    { Convert to center and size vector. Empty box has size (-1,-1,-1). }
+    procedure ToCenterSize(out ACenter, ASize: TVector3);
   end;
 
   TBox3DBool = array [boolean] of TVector3;
@@ -613,13 +628,13 @@ function CalculateBoundingBox(
 
   @groupBegin }
 function CalculateBoundingBoxFromIndices(
-  GetVertIndex: TGetIndexFromIndexNumFunc;
-  VertsIndicesCount: integer;
-  GetVertex: TGetVertexFromIndexFunc): TBox3D; overload;
+  const GetVertIndex: TGetIndexFromIndexNumFunc;
+  const VertsIndicesCount: integer;
+  const GetVertex: TGetVertexFromIndexFunc): TBox3D; overload;
 function CalculateBoundingBoxFromIndices(
-  GetVertIndex: TGetIndexFromIndexNumFunc;
-  VertsIndicesCount: integer;
-  GetVertex: TGetVertexFromIndexFunc;
+  const GetVertIndex: TGetIndexFromIndexNumFunc;
+  const VertsIndicesCount: integer;
+  const GetVertex: TGetVertexFromIndexFunc;
   const Transform: TMatrix4): TBox3D; overload;
 { @groupEnd }
 
@@ -701,6 +716,13 @@ procedure TBox3D.SetMax(const Value: TVector3);
 begin
   if IsEmpty then RaiseSetMax;
   Data[1] := Value;
+end;
+
+class function TBox3D.Empty: TBox3D;
+const
+  R: TBox3D = (Data: ((Data: (0, 0, 0)), (Data: (-1, -1, -1))));
+begin
+  Result := R;
 end;
 
 function TBox3D.IsEmpty: boolean;
@@ -1011,6 +1033,55 @@ begin
   end;
 end;
 
+procedure TBox3D.Include(const Points: TVector3List);
+var
+  V: TVector3;
+  I, StartIndex: Integer;
+begin
+  if IsEmpty then
+  begin
+    Data[0] := Points.List^[0];
+    Data[1] := Points.List^[0];
+    StartIndex := 1;
+  end else
+    StartIndex := 0;
+
+  for I := StartIndex to Points.Count - 1 do
+  begin
+    V := Points.List^[I];
+    MinVar(Data[0].Data[0], V.Data[0]);
+    MaxVar(Data[1].Data[0], V.Data[0]);
+    MinVar(Data[0].Data[1], V.Data[1]);
+    MaxVar(Data[1].Data[1], V.Data[1]);
+    MinVar(Data[0].Data[2], V.Data[2]);
+    MaxVar(Data[1].Data[2], V.Data[2]);
+  end;
+end;
+
+class function TBox3D.FromPoints(const Points: TVector3List): TBox3D;
+var
+  V: TVector3;
+  I: Integer;
+begin
+  if Points.Count = 0 then
+    Result := TBox3D.Empty
+  else
+  begin
+    Result.Data[0] := Points.List^[0];
+    Result.Data[1] := Points.List^[0];
+    for I := 1 to Points.Count - 1 do
+    begin
+      V := Points.List^[I];
+      MinVar(Result.Data[0].Data[0], V.Data[0]);
+      MaxVar(Result.Data[1].Data[0], V.Data[0]);
+      MinVar(Result.Data[0].Data[1], V.Data[1]);
+      MaxVar(Result.Data[1].Data[1], V.Data[1]);
+      MinVar(Result.Data[0].Data[2], V.Data[2]);
+      MaxVar(Result.Data[1].Data[2], V.Data[2]);
+    end;
+  end;
+end;
+
 function TBox3D.Size: TVector3;
 begin
   CheckNonEmpty;
@@ -1037,7 +1108,7 @@ begin
   AllPoints^[7] := Vector3(Data[1].Data[0], Data[1].Data[1], Data[1].Data[2]);
 end;
 
-procedure TBox3D.Corners(var AllPoints: TBoxCorners);
+procedure TBox3D.Corners(out AllPoints: TBoxCorners);
 begin
   {$warnings off} // using deprecated knowingly
   GetAllPoints(@AllPoints);
@@ -1175,7 +1246,7 @@ begin
   if IsEmpty then
     Result := 'EMPTY'
   else
-    Result := Data[0].ToString+' - '+Data[1].ToString;
+    Result := '(Min: ' + Data[0].ToString + ') - (Max: ' + Data[1].ToString + ')';
 end;
 
 function TBox3D.ToRawString: string;
@@ -1183,7 +1254,7 @@ begin
   if IsEmpty then
     Result := 'EMPTY'
   else
-    Result := '(' + Data[0].ToRawString + ') - (' + Data[1].ToRawString + ')';
+    Result := '(Min: ' + Data[0].ToRawString + ') - (Max: ' + Data[1].ToRawString + ')';
 end;
 
 function TBox3D.ToNiceStr: string;
@@ -1691,6 +1762,11 @@ end;
 
 function TBox3D.Collision(const Box2: TBox3D): boolean;
 begin
+  Result := Collides(Box2);
+end;
+
+function TBox3D.Collides(const Box2: TBox3D): boolean;
+begin
   Result :=
     (not IsEmpty) and
     (not Box2.IsEmpty) and
@@ -2094,7 +2170,7 @@ begin
 end;
 
 class function TBox3D.CompareBackToFront3D(
-  const A, B: TBox3D; const SortPosition: TVector3): Integer; static;
+  const A, B: TBox3D; const SortPosition: TVector3): Integer;
 begin
   { We always treat empty box as closer than non-empty.
     And two empty boxes are always equal.
@@ -2118,7 +2194,7 @@ begin
 end;
 
 class function TBox3D.CompareBackToFront2D(
-  const A, B: TBox3D): Integer; static;
+  const A, B: TBox3D): Integer;
 begin
   { Note that we ignore SortPosition, we do not look at distance between
     SortPosition and A, we merely look at A.
@@ -2163,6 +2239,24 @@ end;
 class operator TBox3D.{$ifdef FPC}+{$else}Add{$endif} (const V: TVector3; const B: TBox3D): TBox3D;
 begin
   Result := B.Translate(V);
+end;
+
+class function TBox3D.FromCenterSize(const ACenter, ASize: TVector3): TBox3D;
+begin
+  Result := Box3DAroundPoint(ACenter, ASize);
+end;
+
+procedure TBox3D.ToCenterSize(out ACenter, ASize: TVector3);
+begin
+  if IsEmpty then
+  begin
+    ACenter := TVector3.Zero;
+    ASize := Vector3(-1, -1, -1);
+  end else
+  begin
+    ACenter := Center;
+    ASize := Size;
+  end;
 end;
 
 { Routines ------------------------------------------------------------------- }
@@ -2373,9 +2467,9 @@ begin
 end;
 
 function CalculateBoundingBoxFromIndices(
-  GetVertIndex: TGetIndexFromIndexNumFunc;
-  VertsIndicesCount: integer;
-  GetVertex: TGetVertexFromIndexFunc): TBox3D;
+  const GetVertIndex: TGetIndexFromIndexNumFunc;
+  const VertsIndicesCount: integer;
+  const GetVertex: TGetVertexFromIndexFunc): TBox3D;
 var
   { pozycja pierwszego nieujemnego indexu.
     Zwracamy TBox3D.Empty wtw. gdy firstIndex nie istnieje }
@@ -2438,9 +2532,9 @@ type
   end;
 
 function CalculateBoundingBoxFromIndices(
-  GetVertIndex: TGetIndexFromIndexNumFunc;
-  VertsIndicesCount: integer;
-  GetVertex: TGetVertexFromIndexFunc;
+  const GetVertIndex: TGetIndexFromIndexNumFunc;
+  const VertsIndicesCount: integer;
+  const GetVertex: TGetVertexFromIndexFunc;
   const Transform: TMatrix4): TBox3D;
 var
   Calculator: TVertTransform_Calculator;

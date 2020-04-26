@@ -1,21 +1,14 @@
 {
   Copyright 2008-2018 Michalis Kamburelis.
 
-  This file is part of "The Rift".
+  This file is part of "Castle Game Engine".
 
-  "The Rift" is free software; you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation; either version 2 of the License, or
-  (at your option) any later version.
+  "Castle Game Engine" is free software; see the file COPYING.txt,
+  included in this distribution, for details about the copyright.
 
-  "The Rift" is distributed in the hope that it will be useful,
+  "Castle Game Engine" is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with "The Rift"; if not, write to the Free Software
-  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
   ----------------------------------------------------------------------------
 }
@@ -26,7 +19,7 @@ unit GameStatePlay;
 interface
 
 uses
-  CastleUIState, CastleSceneManager, X3DNodes, CastleProjection,
+  CastleUIState, CastleViewport, X3DNodes, CastleProjection,
   CastleTransform, CastleVectors, CastleKeysMouse, CastleControls,
   GameCreatures, GameLocations;
 
@@ -36,7 +29,7 @@ type
   strict private
     Player: TPlayer;
     CurrentLocation: TLocation;
-    SceneManager: TCastleSceneManager;
+    Viewport: TCastleViewport;
     InfoLabel: TCastleLabel;
   public
     procedure Start; override;
@@ -62,7 +55,7 @@ uses Math, SysUtils,
 procedure TStatePlay.Resize;
 begin
   inherited;
-  CurrentLocation.Scene.SceneManagerRect := SceneManager.ScreenRect;
+  CurrentLocation.Scene.ViewportRect := Viewport.RenderRect.Round;
 end;
 
 procedure TStatePlay.Start;
@@ -76,27 +69,29 @@ begin
   Notifications.Clear;
   InsertFront(Notifications);
 
-  SceneManager := TCastleSceneManager.Create(FreeAtStop);
-  InsertFront(SceneManager);
+  Viewport := TCastleViewport.Create(FreeAtStop);
+  Viewport.FullSize := true;
+  Viewport.AutoCamera := true;
+  InsertFront(Viewport);
 
   Progress.Init(Locations.Count + CreatureKinds.Count, 'Preparing');
   try
     for Location in Locations do
     begin
-      Location.Load(SceneManager.PrepareParams);
+      Location.Load(Viewport.PrepareParams);
       Progress.Step;
     end;
     for CreatureKind in CreatureKinds do
     begin
-      CreatureKind.Load(SceneManager.PrepareParams);
+      CreatureKind.Load(Viewport.PrepareParams);
       Progress.Step;
     end;
   finally Progress.Fini end;
 
-  SceneManager.Items.Add(CurrentLocation.Scene);
+  Viewport.Items.Add(CurrentLocation.Scene);
   { set as MainScene, to allow location VRML / X3D file to determine
     headlight, viewpoint, shadow volumes light... }
-  SceneManager.MainScene := CurrentLocation.Scene;
+  Viewport.Items.MainScene := CurrentLocation.Scene;
 
   Player := TPlayer.Create(CreatureKinds.PlayerKind);
   Player.SetView(
@@ -104,12 +99,7 @@ begin
     CurrentLocation.PlayerDirection,
     CurrentLocation.PlayerUp);
   Player.LocationChanged;
-  SceneManager.Items.Add(Player);
-
-  { set NavigationType after SceneManager.MainScene is assigned.
-    This way newly created camera will have positio/dir/up derived
-    from location Viewpoint. }
-  SceneManager.NavigationType := ntNone;
+  Viewport.Items.Add(Player);
 
   InfoLabel := TCastleLabel.Create(FreeAtStop);
   InfoLabel.Color := White;
@@ -162,8 +152,8 @@ begin
       begin
         if Event.MouseButton = mbLeft then
         begin
-          if SceneManager.MouseRayHit <> nil then
-            Player.WantsToWalk(SceneManager.MouseRayHit.Last.Point);
+          if Viewport.MouseRayHit <> nil then
+            Player.WantsToWalk(Viewport.MouseRayHit.Last.Point);
         end;
       end;
   end;

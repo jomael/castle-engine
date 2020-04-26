@@ -1,6 +1,23 @@
 /* -*- tab-width: 4 -*- */
+
+/*
+  Copyright 2018-2020 Michalis Kamburelis.
+
+  This file is part of "Castle Game Engine".
+
+  "Castle Game Engine" is free software; see the file COPYING.txt,
+  included in this distribution, for details about the copyright.
+
+  "Castle Game Engine" is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  ----------------------------------------------------------------------------
+*/
+
 package net.sourceforge.castleengine;
 
+import android.Manifest;
 import android.view.View;
 import android.os.Build;
 import android.os.Vibrator;
@@ -18,6 +35,7 @@ public class ServiceVibrate extends ServiceAbstract
     public ServiceVibrate(MainActivity activity)
     {
         super(activity);
+        getActivity().requestPermission(Manifest.permission.VIBRATE);
     }
 
     public String getName()
@@ -30,10 +48,21 @@ public class ServiceVibrate extends ServiceAbstract
        http://developer.android.com/reference/android/os/Vibrator.html
     */
 
+    @SuppressWarnings("deprecation")
     private void vibrate(long milliseconds)
     {
         Vibrator vibs = (Vibrator) getActivity().getSystemService(Context.VIBRATOR_SERVICE);
-        vibs.vibrate(milliseconds);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // not deprecated:
+            android.os.VibrationEffect effect =
+                android.os.VibrationEffect.createOneShot(milliseconds,
+                    android.os.VibrationEffect.DEFAULT_AMPLITUDE);
+            vibs.vibrate(effect);
+        } else {
+            // deprecated in new API versions,
+            // but necessary to work on old devices that don't have VibrationEffect
+            vibs.vibrate(milliseconds);
+        }
     }
 
     @Override

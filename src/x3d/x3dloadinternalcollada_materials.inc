@@ -131,7 +131,8 @@ var
                    if ParamName = 'REFLECTIVITY' then
                    begin
                      if AllowKambiExtensions then
-                       Mat.FdMirror.Value := ReadParamAsFloat(I.Current) else
+                       Mat.FdMirror.Value := ReadParamAsFloat(I.Current)
+                     else
                        ReadParamAsFloat(I.Current);
                    end else
                    (*

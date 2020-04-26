@@ -34,7 +34,7 @@ uses SysUtils, Classes, Math,
   {$ifdef CASTLE_OBJFPC} CastleGL, {$else} GL, GLExt, {$endif}
   CastleVectors, X3DNodes, CastleWindow,
   CastleClassUtils, CastleUtils, CastleRenderingCamera,
-  CastleGLUtils, CastleScene, CastleKeysMouse, CastleSceneManager,
+  CastleGLUtils, CastleScene, CastleKeysMouse, CastleViewport,
   CastleFilesUtils, CastleLog, CastleSphericalHarmonics, CastleImages,
   CastleGLCubeMaps, CastleStringUtils, CastleParameters, CastleColors,
   CastleApplicationProperties, CastleControls, CastleTransform;
@@ -43,7 +43,7 @@ type
   TViewMode = (vmNormal, vmSimpleOcclusion, vmFull);
 
 var
-  Window: TCastleWindowCustom;
+  Window: TCastleWindowBase;
   Scene: TCastleScene;
   ViewMode: TViewMode = vmFull;
   LightRadius: Single;
@@ -95,12 +95,12 @@ begin
 end;
 
 type
-  TMySceneManager = class(TCastleSceneManager)
+  TMyViewport = class(TCastleViewport)
     procedure Render; override;
     procedure Render3D(const Params: TRenderParams); override;
   end;
 
-procedure TMySceneManager.Render;
+procedure TMyViewport.Render;
 begin
   if not Scene.BoundingBox.IsEmpty then
   begin
@@ -111,21 +111,22 @@ begin
     SHVectorGLCapture(LightSHBasis, Scene.BoundingBox.Center,
       @DrawLight, 100, 100, LightIntensityScale);
 
-    { no need to reset glViewport, inheried TCastleSceneManager.Render calls
+    { no need to reset RenderContext.Viewport
+      inheried TCastleViewport.Render calls
       ApplyProjection that will already do it. }
   end;
 
   inherited;
 end;
 
-procedure TMySceneManager.Render3D(const Params: TRenderParams);
+procedure TMyViewport.Render3D(const Params: TRenderParams);
 begin
   inherited;
   DrawLight(false);
 end;
 
 var
-  SceneManager: TMySceneManager;
+  Viewport: TMyViewport;
 
 type
   THelper = class
@@ -257,7 +258,8 @@ end;
 { One-time initialization of resources. }
 procedure ApplicationInitialize;
 var
-  URL: string = 'data/chinchilla_with_prt.wrl.gz';
+  URL: string = 'castle-data:/chinchilla_with_prt.wrl.gz';
+  Background: TCastleRectangleControl;
 begin
   Parameters.CheckHighAtMost(1);
   if Parameters.High = 1 then
@@ -279,20 +281,26 @@ begin
       Scene.BoundingBox.Data[0].Data[0] + LightRadius;
   end;
 
-  Window.Controls.InsertFront(TCastleSimpleBackground.Create(Application));
+  Background := TCastleRectangleControl.Create(Application);
+  Background.FullSize := true;
+  Background.Color := Black;
+  Window.Controls.InsertFront(Background);
 
-  SceneManager := TMySceneManager.Create(Application);
-  SceneManager.Items.Add(Scene);
-  { we will clear context by our own TCastleSimpleBackground,
+  Viewport := TMyViewport.Create(Application);
+  Viewport.FullSize := true;
+  Viewport.AutoCamera := true;
+  Viewport.AutoNavigation := true;
+  { we will clear context by our own Background,
     to keep SHVectorGLCapture visible for debugging }
-  SceneManager.Transparent := true;
-  SceneManager.MainScene := Scene;
+  Viewport.Transparent := true;
+  Viewport.Items.Add(Scene);
+  Viewport.Items.MainScene := Scene;
 
   { TODO: this demo uses specialized rendering
     that currently assumes some fixed-function things set up. }
   GLFeatures.EnableFixedFunction := true;
 
-  Window.Controls.InsertFront(SceneManager);
+  Window.Controls.InsertFront(Viewport);
 
   Window.OnUpdate := @Update;
 
@@ -314,7 +322,7 @@ initialization
   Application.OnInitialize := @ApplicationInitialize;
 
   { Create and assign Application.MainWindow. }
-  Window := TCastleWindowCustom.Create(Application);
+  Window := TCastleWindowBase.Create(Application);
   Application.MainWindow := Window;
   Window.MainMenu := CreateMainMenu;
   Window.OnMenuClick := @MenuClick;

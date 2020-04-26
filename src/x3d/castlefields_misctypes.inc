@@ -36,6 +36,8 @@
     events and such) when given item cannot be found. }
   EX3DNotFound = class(EX3DError);
 
+  EInvalidNurbs = class(EX3DError);
+
   TSaveToXmlMethod = (sxNone, sxAttribute, sxAttributeCustomQuotes, sxChildElement);
 
   { Possible things that happen when given field is changed.
@@ -85,7 +87,7 @@
 
       Caller will analyze the scene to know what this implicates,
       don't include other flags with this.
-      Exception: you can (and should) include chUseBlending and
+      Exception: you can (and should) include chAlphaChannel and
       chTextureImage for appropriate changes. }
     chVisibleVRML1State,
 
@@ -102,15 +104,15 @@
 
       Caller will analyze the scene to know what this implicates,
       don't include other flags with this.
-      Exception: you can (and should) include chUseBlending for appropriate
+      Exception: you can (and should) include chAlphaChannel for appropriate
       Material changes. }
     chMaterial2,
 
-    { Something that may affect UseBlending calculation possibly changed.
+    { Something that may affect TShape.AlphaChannel calculation possibly changed.
       This is guaranteed to work only when used together with
       chVisibleVRML1State and chMaterial2. It's understood that only
-      shapes that use given material need UseBlending recalculated. }
-    chUseBlending,
+      shapes that use given material need AlphaChannel recalculated. }
+    chAlphaChannel,
 
     { Light property that is also reflected in TLightInstance structure.
       Only allowed on node's descending from TAbstractLightNode.
@@ -243,11 +245,11 @@
 
     { NavigationInfo field value used in
       TCastleSceneCore.NavigationTypeFromNavigationInfo or
-      TCastleSceneCore.CameraFromNavigationInfo
+      TCastleSceneCore.UpdateNavigation
       changed. }
     chNavigationInfo,
 
-    { ScreenEffect.enabled changed }
+    { ScreenEffect.enabled changed. }
     chScreenEffectEnabled,
 
     { X3DBackgroundNode properties that are stored inside TBackground
@@ -273,7 +275,13 @@
     chShadowMaps,
 
     { Shading changed from wireframe to non-wireframe. }
-    chWireframe);
+    chWireframe,
+
+    { Children of X3D (or VRML 2) grouping node have been added or removed. }
+    chChildren,
+
+    { Shape.bboxCenter/Size changed, so TShape.LocalBoundingBox changed. }
+    chBBox);
   TX3DChanges = set of TX3DChange;
 
 {$endif read_interface}

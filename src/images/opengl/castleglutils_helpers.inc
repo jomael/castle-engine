@@ -59,23 +59,23 @@ function glGetBoolean(pname: TGLEnum): TGLboolean;
 
 // Do not mark glColorv as "deprecated" for now. These have valid (although internal) usage.
 { }
-procedure glColorv(const v: TVector3ub); overload; //deprecated 'instead of this, use drawing routines that take Color from parameters or properties, like TCastleFont.Print(X,Y,Color,...) or TGLImage.Color';
+procedure glColorv(const v: TVector3ub); overload; //deprecated 'instead of this, use drawing routines that take Color from parameters or properties, like TCastleFont.Print(X,Y,Color,...) or TDrawableImage.Color';
 { }
-procedure glColorv(const v: TVector4ub); overload; //deprecated 'instead of this, use drawing routines that take Color from parameters or properties, like TCastleFont.Print(X,Y,Color,...) or TGLImage.Color';
+procedure glColorv(const v: TVector4ub); overload; //deprecated 'instead of this, use drawing routines that take Color from parameters or properties, like TCastleFont.Print(X,Y,Color,...) or TDrawableImage.Color';
 { }
-procedure glColorv(const v: TVector3f); overload; //deprecated 'instead of this, use drawing routines that take Color from parameters or properties, like TCastleFont.Print(X,Y,Color,...) or TGLImage.Color';
+procedure glColorv(const v: TVector3f); overload; //deprecated 'instead of this, use drawing routines that take Color from parameters or properties, like TCastleFont.Print(X,Y,Color,...) or TDrawableImage.Color';
 { }
-procedure glColorv(const v: TVector4f); overload; //deprecated 'instead of this, use drawing routines that take Color from parameters or properties, like TCastleFont.Print(X,Y,Color,...) or TGLImage.Color';
+procedure glColorv(const v: TVector4f); overload; //deprecated 'instead of this, use drawing routines that take Color from parameters or properties, like TCastleFont.Print(X,Y,Color,...) or TDrawableImage.Color';
 
 { }
-procedure glTranslatev(const V: TVector3f); overload; deprecated 'use other methods to transform things, e.g. TUIControl position / anchors, or TCastleTransform for TCastleScene, or TTransformNode in X3D';
-procedure glTranslatev(const V: TVector3_Single); overload; deprecated 'use other methods to transform things, e.g. TUIControl position / anchors, or TCastleTransform for TCastleScene, or TTransformNode in X3D';
+procedure glTranslatev(const V: TVector3f); overload; deprecated 'use other methods to transform things, e.g. TCastleUserInterface position / anchors, or TCastleTransform for TCastleScene, or TTransformNode in X3D';
+procedure glTranslatev(const V: TVector3_Single); overload; deprecated 'use other methods to transform things, e.g. TCastleUserInterface position / anchors, or TCastleTransform for TCastleScene, or TTransformNode in X3D';
 
-procedure glScalev(const V: Single); overload; deprecated 'use other methods to transform things, e.g. TUIControl position / anchors, or TCastleTransform for TCastleScene, or TTransformNode in X3D';
-procedure glScalev(const V: TVector3f); overload; deprecated 'use other methods to transform things, e.g. TUIControl position / anchors, or TCastleTransform for TCastleScene, or TTransformNode in X3D';
-procedure glScalev(const V: TVector3_Single); overload; deprecated 'use other methods to transform things, e.g. TUIControl position / anchors, or TCastleTransform for TCastleScene, or TTransformNode in X3D';
+procedure glScalev(const V: Single); overload; deprecated 'use other methods to transform things, e.g. TCastleUserInterface position / anchors, or TCastleTransform for TCastleScene, or TTransformNode in X3D';
+procedure glScalev(const V: TVector3f); overload; deprecated 'use other methods to transform things, e.g. TCastleUserInterface position / anchors, or TCastleTransform for TCastleScene, or TTransformNode in X3D';
+procedure glScalev(const V: TVector3_Single); overload; deprecated 'use other methods to transform things, e.g. TCastleUserInterface position / anchors, or TCastleTransform for TCastleScene, or TTransformNode in X3D';
 
-procedure glRotatev(const Angle: TGLfloat;  const V: TVector3f); overload; deprecated 'use other methods to transform things, e.g. TUIControl position / anchors, or TCastleTransform for TCastleScene, or TTransformNode in X3D';
+procedure glRotatev(const Angle: TGLfloat;  const V: TVector3f); overload; deprecated 'use other methods to transform things, e.g. TCastleUserInterface position / anchors, or TCastleTransform for TCastleScene, or TTransformNode in X3D';
 
 procedure glClipPlane(plane: GLenum; const V: TVector4Double); overload;
 
@@ -109,9 +109,9 @@ procedure glFogv(pname: TGLEnum; const params: TVector4f); overload;
 
 // Do not mark as "deprecated" for now. These have valid (although internal) usage.
 { }
-procedure glMultMatrix(const m: TMatrix4f); overload; //deprecated 'use other methods to transform things, e.g. TUIControl position / anchors, or TCastleTransform for TCastleScene, or TTransformNode in X3D';
+procedure glMultMatrix(const m: TMatrix4f); overload; //deprecated 'use other methods to transform things, e.g. TCastleUserInterface position / anchors, or TCastleTransform for TCastleScene, or TTransformNode in X3D';
 { }
-procedure glLoadMatrix(const m: TMatrix4f); overload; //deprecated 'use other methods to transform things, e.g. TUIControl position / anchors, or TCastleTransform for TCastleScene, or TTransformNode in X3D';
+procedure glLoadMatrix(const m: TMatrix4f); overload; //deprecated 'use other methods to transform things, e.g. TCastleUserInterface position / anchors, or TCastleTransform for TCastleScene, or TTransformNode in X3D';
 
 { }
 procedure glTexEnvv(target, pname: TGLEnum; const params: TVector4f); overload;
@@ -119,6 +119,7 @@ procedure glTexEnvv(target, pname: TGLEnum; const params: TVector4f); overload;
 {$endif}
 
 procedure GLViewport(const Rect: TRectangle);
+  deprecated 'use RenderContext.Viewport';
 
 var
   { Current color, set by glColorv and used for TCastleFont font printing
@@ -127,9 +128,9 @@ var
 
     @deprecated Instead of this, use drawing routines that take
     Color from parameters or properties, like TCastleFont.Print(X,Y,Color,...)
-    or TGLImage.Color. }
+    or TDrawableImage.Color. }
   CurrentColor: TCastleColor
-    deprecated 'instead of this, use drawing routines that take Color from parameters or properties, like TCastleFont.Print(X,Y,Color,...) or TGLImage.Color';
+    deprecated 'instead of this, use drawing routines that take Color from parameters or properties, like TCastleFont.Print(X,Y,Color,...) or TDrawableImage.Color';
 
 { ---------------------------------------------------------------------------- }
 
@@ -141,13 +142,13 @@ procedure GLSetEnabled(Value: TGLenum; IsEnabled: boolean);
 { Draw vertical line using OpenGL. Uses current OpenGL color.
 
   Deprecated, do not draw lines directly like this,
-  instead use DrawPrimitive2D or UI interface drawing like Theme.Draw and TGLImageCore.Draw. }
+  instead use DrawPrimitive2D or UI interface drawing like Theme.Draw and TDrawableImage.Draw. }
 procedure GLVerticalLine(x, y1, y2: TGLfloat); deprecated 'use DrawPrimitive2D';
 
 { Draw horizontal line using OpenGL. Uses current OpenGL color.
 
   Deprecated, do not draw lines directly like this,
-  instead use DrawPrimitive2D or UI interface drawing like Theme.Draw and TGLImageCore.Draw. }
+  instead use DrawPrimitive2D or UI interface drawing like Theme.Draw and TDrawableImage.Draw. }
 procedure GLHorizontalLine(x1, x2, y: TGLfloat); deprecated 'use DrawPrimitive2D';
 
 { Draw arrow shape. Arrow is placed on Z = 0 plane, points to the up,
@@ -189,8 +190,8 @@ procedure glDrawAxisWire(const Position: TVector3; Size: Single); deprecated 'us
   Deprecated, do not use colors like that, instead pass TCastleColor
   to appropriate routines like TCastleFont.Print.
   @groupBegin }
-procedure glColorOpacity(const Color: TVector3; const Opacity: Single); overload; deprecated 'instead of this, use drawing routines that take Color from parameters or properties, like TCastleFont.Print(X,Y,Color,...) or TGLImage.Color';
-procedure glColorOpacity(const Color: TVector3Byte; const Opacity: Single); overload; deprecated 'instead of this, use drawing routines that take Color from parameters or properties, like TCastleFont.Print(X,Y,Color,...) or TGLImage.Color';
+procedure glColorOpacity(const Color: TVector3; const Opacity: Single); overload; deprecated 'instead of this, use drawing routines that take Color from parameters or properties, like TCastleFont.Print(X,Y,Color,...) or TDrawableImage.Color';
+procedure glColorOpacity(const Color: TVector3Byte; const Opacity: Single); overload; deprecated 'instead of this, use drawing routines that take Color from parameters or properties, like TCastleFont.Print(X,Y,Color,...) or TDrawableImage.Color';
 { @groupEnd }
 {$endif}
 
@@ -235,15 +236,16 @@ procedure glSetDepthAndColorWriteable(const Writeable: boolean);
 { Global position for drawing 2D stuff.
   @deprecated Do this use this.
   Instead of this, use drawing routines that take position as parameters,
-  like TGLImageCore.Draw(X,Y) or TCastleFont.Print(X,Y,...). }
+  like TDrawableImage.Draw(X,Y) or TCastleFont.Print(X,Y,...). }
 var
   WindowPos: TVector2Integer
-    deprecated 'use drawing routines that take position as parameters, like TGLImageCore.Draw(X,Y) or TCastleFont.Print(X,Y,...)';
+    deprecated 'use drawing routines that take position as parameters, like TDrawableImage.Draw(X,Y) or TCastleFont.Print(X,Y,...)';
 
 type
   TEnableTextureTarget = (etNone, et2D, etCubeMap, et3D);
 
-{ Enable exactly one (or none, for Target=etNone) OpenGL texture target.
+{ Enable exactly one (or none, for Target=etNone) OpenGL texture target
+  for fixed-function pipeline.
   Always use this instead of manually calling @code(glDisable(GL_TEXTURE_2D)),
   @code(glEnable(GL_TEXTURE_2D)) and such. This makes sure to have at most
   one texture target enabled, and disable others.
@@ -387,8 +389,7 @@ procedure glTexEnvv(target, pname: TGLEnum; const params: TVector4f); begin glTe
 
 procedure GLViewport(const Rect: TRectangle);
 begin
-  {$ifndef OpenGLES} GL {$else} CastleGLES20 {$endif}
-    .glViewport(Rect.Left, Rect.Bottom, Rect.Width, Rect.Height);
+  RenderContext.Viewport := Rect;
 end;
 
 { Various helpers ------------------------------------------------------------ }
@@ -411,7 +412,7 @@ end;
 
 procedure GLDrawArrow(HeadThickness, HeadLength: TGLfloat);
 begin
-  HeadLength := 2*HeadLength; { mapuj HeadLength na zakres 0..2 }
+  HeadLength := 2*HeadLength; { map HeadLength to 0..2 }
 
   glBegin(GL_TRIANGLES);
     glVertex2f(0, 2);
@@ -440,44 +441,44 @@ end;
 procedure GLVerticalLine(x, y1, y2: TGLfloat);
 begin
   DrawPrimitive2D(pmLines,
-    [Vector2SmallInt(Round(x), Round(y1)),
-     Vector2SmallInt(Round(x), Round(y2))],
+    [Vector2(x, y1),
+     Vector2(x, y2)],
     CurrentColor);
 end;
 
 procedure GLHorizontalLine(x1, x2, y: TGLfloat);
 begin
   DrawPrimitive2D(pmLines,
-    [Vector2SmallInt(Round(x1), Round(y)),
-     Vector2SmallInt(Round(x2), Round(y))],
+    [Vector2(x1, y),
+     Vector2(x2, y)],
     CurrentColor);
 end;
 
 procedure GLDrawArrow(HeadThickness, HeadLength: TGLfloat);
 begin
-  HeadLength := 2*HeadLength; { mapuj HeadLength na zakres 0..2 }
+  HeadLength := 2*HeadLength; { map HeadLength to 0..2 }
 
   DrawPrimitive2D(pmTriangles,
-    [Vector2SmallInt(0, 2),
-     Vector2SmallInt(-1, Round(HeadLength)),
-     Vector2SmallInt(-Round(HeadThickness), Round(HeadLength)),
+    [Vector2(0, 2),
+     Vector2(-1, HeadLength),
+     Vector2(-HeadThickness, HeadLength),
 
-     Vector2SmallInt(0, 2),
-     Vector2SmallInt(-Round(HeadThickness), Round(HeadLength)),
-     Vector2SmallInt(Round(HeadThickness), Round(HeadLength)),
+     Vector2(0, 2),
+     Vector2(-HeadThickness, HeadLength),
+     Vector2(HeadThickness, HeadLength),
 
-     Vector2SmallInt(0, 2),
-     Vector2SmallInt(Round(HeadThickness), Round(HeadLength)),
-     Vector2SmallInt(1, Round(HeadLength)),
+     Vector2(0, 2),
+     Vector2(HeadThickness, HeadLength),
+     Vector2(1, HeadLength),
 
      // quad
-     Vector2SmallInt(-Round(HeadThickness), Round(HeadLength)),
-     Vector2SmallInt(-Round(HeadThickness), 0),
-     Vector2SmallInt(Round(HeadThickness), 0),
+     Vector2(-HeadThickness, HeadLength),
+     Vector2(-HeadThickness, 0),
+     Vector2(HeadThickness, 0),
 
-     Vector2SmallInt(-Round(HeadThickness), Round(HeadLength)),
-     Vector2SmallInt(Round(HeadThickness), 0),
-     Vector2SmallInt(Round(HeadThickness), Round(HeadLength))
+     Vector2(-HeadThickness, HeadLength),
+     Vector2(HeadThickness, 0),
+     Vector2(HeadThickness, HeadLength)
     ],
     CurrentColor);
 end;
@@ -572,16 +573,21 @@ begin
   end;
 end;
 
-procedure glSetDepthAndColorWriteable(const Writeable: boolean);
-var
-  B: TGLboolean;
+function BoolToGL(const Value: boolean): TGLboolean;
 begin
-  if Writeable then
-    B := GL_TRUE
+  if Value then
+    Result := GL_TRUE
   else
-    B := GL_FALSE;
-  glDepthMask(B);
-  glColorMask(B, B, B, B);
+    Result := GL_FALSE;
+end;
+
+procedure glSetDepthAndColorWriteable(const Writeable: boolean);
+begin
+  glDepthMask(BoolToGL(Writeable));
+  if Writeable then
+    RenderContext.ColorChannels := [0..3]
+  else
+    RenderContext.ColorChannels := [];
 end;
 
 function GLEnableTexture(const Target: TEnableTextureTarget): boolean;
@@ -613,7 +619,9 @@ begin
           if GLFeatures.TextureCubeMap <> gsNone then glDisable(GL_TEXTURE_CUBE_MAP);
           if GLFeatures.Texture3D <> gsNone then glEnable(GL_TEXTURE_3D) else Result := false;
         end;
+      {$ifndef COMPILER_CASE_ANALYSIS}
       else raise EInternalError.Create('GLEnableTexture:Target?');
+      {$endif}
     end;
 
     {$endif}

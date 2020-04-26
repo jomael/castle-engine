@@ -16,7 +16,7 @@
 { CastleWindow backend that depends on external code to initialize
   OpenGL context.
   The external code must notify us about events by calling LibraryXxx methods,
-  like TCastleWindowCustom.LibraryKeyDown or TCastleApplication.LibraryUpdate.
+  like TCastleWindowBase.LibraryKeyDown or TCastleApplication.LibraryUpdate.
   The external code will get notified about our events using LibraryCallbackProc. }
 
 {$ifdef read_interface_uses}
@@ -24,6 +24,7 @@ CTypes,
 {$endif}
 
 {$ifdef read_implementation_uses}
+CastleJoysticks,
 {$endif}
 
 {$ifdef read_interface_types}
@@ -40,14 +41,27 @@ public
 {$ifdef read_application_interface}
 private
   FScreenWidth, FScreenHeight: Integer;
-  procedure WarningToCallback(Sender: TObject; const Category, S: string);
+  FScreenStatusBarHeight: Cardinal;
+  procedure WarningToCallback(const Category, S: string);
 {$endif read_application_interface}
 
 {$ifdef read_global_interface}
 
-procedure CGEApp_Open(InitialWidth, InitialHeight, ADpi: cUInt32; ApplicationConfigDirectory: PChar); cdecl;
-procedure CGEApp_Close; cdecl;
-procedure CGEApp_Resize(uiViewWidth, uiViewHeight: cUInt32); cdecl;
+{ Initialize / Finalize set up some global things.
+  Call CGEApp_Initialize / CGEApp_Finalize once and only once during the entire application. }
+procedure CGEApp_Initialize(ApplicationConfigDirectory: PChar); cdecl;
+procedure CGEApp_Finalize; cdecl;
+
+{ Used by the external process to ask for context properties from CGE
+  (whether to use alpha channel, depth buffer etc.).
+  CGE answers looking at Application.MainWindow properties. }
+procedure CGEApp_ContextProperties(RedBits, GreenBits, BlueBits, AlphaBits, DepthBits, StencilBits: PCInt); cdecl; export;
+
+{ Notifications from the external process about various events:
+  rendering context was opened, closed, resized etc. }
+procedure CGEApp_Open(InitialWidth, InitialHeight, InitialStatusBarHeight, ADpi: cUInt32); cdecl;
+procedure CGEApp_Close(QuitWhenLastWindowClosed: CBool); cdecl;
+procedure CGEApp_Resize(uiViewWidth, uiViewHeight, uiStatusBarHeight: cUInt32); cdecl;
 procedure CGEApp_Render; cdecl;
 procedure CGEApp_SetLibraryCallbackProc(aProc: TLibraryCallbackProc); cdecl;
 procedure CGEApp_Update; cdecl;
@@ -56,6 +70,8 @@ procedure CGEApp_Motion(X, Y: CInt32; FingerIndex: CInt32); cdecl;
 procedure CGEApp_MouseUp(X, Y: cInt32; bLeftBtn: cBool; FingerIndex: CInt32; TrackReleased: cBool); cdecl;
 procedure CGEApp_KeyDown(eKey: CInt32); cdecl;
 procedure CGEApp_KeyUp(eKey: CInt32); cdecl;
+procedure CGEApp_JoystickAxis(JoystickIndex: CInt; X, Y: Single); cdecl;
+procedure CGEApp_JoystickCount(JoystickCount: CInt); cdecl;
 function CGEApp_HandleOpenUrl(szUrl: PChar): CInt32; cdecl;
 
 {$endif read_global_interface}
@@ -85,44 +101,44 @@ const
 var
   LibraryCallbackProc: TLibraryCallbackProc;
 
-{ TCastleWindowCustom ---------------------------------------------------------- }
+{ TCastleWindowBase ---------------------------------------------------------- }
 
-procedure TCastleWindowCustom.CreateBackend;
+procedure TCastleWindowBase.CreateBackend;
 begin
   { Nothing to do. }
 end;
 
-procedure TCastleWindowCustom.OpenBackend;
+procedure TCastleWindowBase.OpenBackend;
 begin
   { We just assume that we already have OpenGL context initialized.
     Nothing to do. }
   Application.OpenWindowsAdd(Self);
 end;
 
-procedure TCastleWindowCustom.SwapBuffers;
+procedure TCastleWindowBase.SwapBuffers;
 begin
   { The external code must take care of swapping buffers or doing glFlush. }
 end;
 
-procedure TCastleWindowCustom.CloseBackend;
+procedure TCastleWindowBase.CloseBackend;
 begin
   { Nothing to do. }
 end;
 
-procedure TCastleWindowCustom.Invalidate;
+procedure TCastleWindowBase.Invalidate;
 begin
   if not Closed then Invalidated := true;
   if Assigned(LibraryCallbackProc) then  // tell the parent window to repaint
     LibraryCallbackProc(ecgelibNeedsDisplay, 0, 0, nil);
 end;
 
-procedure TCastleWindowCustom.BackendMakeCurrent;
+procedure TCastleWindowBase.BackendMakeCurrent;
 begin
   { Nothing to do, we assume external code makes sure this is always
     the current OpenGL context. }
 end;
 
-procedure TCastleWindowCustom.SetCursor(const Value: TMouseCursor);
+procedure TCastleWindowBase.SetCursor(const Value: TMouseCursor);
 var
   CursorCode: cInt32;
 begin
@@ -145,20 +161,20 @@ begin
   end;
 end;
 
-procedure TCastleWindowCustom.SetCaption(const Part: TCaptionPart; const Value: string);
+procedure TCastleWindowBase.SetCaption(const Part: TCaptionPart; const Value: string);
 begin
   FCaption[Part] := Value;
   if not Closed then
     { TODO: call LibraryCallbackProc to change caption to GetWholeCaption };
 end;
 
-procedure TCastleWindowCustom.SetCustomCursor(const Value: TRGBAlphaImage);
+procedure TCastleWindowBase.SetCustomCursor(const Value: TRGBAlphaImage);
 begin
   FCustomCursor := Value;
   { TODO: call LibraryCallbackProc with custom cursor shape, if you want this }
 end;
 
-procedure TCastleWindowCustom.SetMousePosition(const Value: TVector2);
+procedure TCastleWindowBase.SetMousePosition(const Value: TVector2);
 begin
   if (not Closed) and Assigned(LibraryCallbackProc) then
   begin
@@ -171,83 +187,83 @@ begin
   end;
 end;
 
-procedure TCastleWindowCustom.SetFullScreen(const Value: boolean);
+procedure TCastleWindowBase.UpdateFullScreenBackend;
 begin
   { TODO: call LibraryCallbackProc to switch fullscreen mode }
-  FFullScreen := Value;
+  FFullScreenBackend := FFullScreenWanted;
 end;
 
 { LibraryXxx methods --------------------------------------------------------- }
 
-procedure TCastleWindowCustom.LibraryMouseWheel(const Scroll: Single; const Vertical: boolean);
+procedure TCastleWindowBase.LibraryMouseWheel(const Scroll: Single; const Vertical: boolean);
 begin
   DoMouseWheel(Scroll, Vertical);
 end;
 
-{ TCastleWindowCustom menu ----------------------------------------------------
+{ TCastleWindowBase menu ----------------------------------------------------
   Does not do anything, this backend cannot manage the menu bar. }
 
-procedure TCastleWindowCustom.BackendMenuInitialize;
+procedure TCastleWindowBase.BackendMenuInitialize;
 begin
 end;
 
-procedure TCastleWindowCustom.BackendMenuFinalize;
+procedure TCastleWindowBase.BackendMenuFinalize;
 begin
 end;
 
-procedure TCastleWindowCustom.MenuUpdateCaption(Entry: TMenuEntryWithCaption);
+procedure TCastleWindowBase.MenuUpdateCaption(Entry: TMenuEntryWithCaption);
 begin
 end;
 
-procedure TCastleWindowCustom.MenuUpdateEnabled(Entry: TMenuEntryWithCaption);
+procedure TCastleWindowBase.MenuUpdateEnabled(Entry: TMenuEntryWithCaption);
 begin
 end;
 
-procedure TCastleWindowCustom.MenuUpdateChecked(Entry: TMenuItemChecked);
+procedure TCastleWindowBase.MenuUpdateChecked(Entry: TMenuItemChecked);
 begin
 end;
 
-function TCastleWindowCustom.MenuUpdateCheckedFast: boolean;
+function TCastleWindowBase.MenuUpdateCheckedFast: boolean;
 begin
   Result := false;
 end;
 
-procedure TCastleWindowCustom.MenuInsert(const Parent: TMenu;
+procedure TCastleWindowBase.MenuInsert(const Parent: TMenu;
   const ParentPosition: Integer; const Entry: TMenuEntry);
 begin
 end;
 
-procedure TCastleWindowCustom.MenuDelete(const Parent: TMenu;
+procedure TCastleWindowBase.MenuDelete(const Parent: TMenu;
   const ParentPosition: Integer; const Entry: TMenuEntry);
 begin
 end;
 
-function TCastleWindowCustom.RedirectKeyDownToMenuClick: boolean;
+function TCastleWindowBase.RedirectKeyDownToMenuClick: boolean;
 begin
   Result := true;
 end;
 
-{ TCastleWindowCustom dialogs ---------------------------------------------------------- }
+{ TCastleWindowBase dialogs ---------------------------------------------------------- }
 
 { Methods below should make native-looking dialog boxes. }
 
-function TCastleWindowCustom.BackendFileDialog(const Title: string; var FileName: string;
+function TCastleWindowBase.BackendFileDialog(const Title: string; var FileName: string;
   OpenDialog: boolean; FileFilters: TFileFilterList): boolean;
 begin
   { TODO } Result := false;
 end;
 
-function TCastleWindowCustom.ColorDialog(var Color: TVector3): boolean;
+function TCastleWindowBase.ColorDialog(var Color: TVector3): boolean;
 begin
   { TODO } Result := false;
 end;
 
-procedure TCastleWindowCustom.MessageOK(const S: string; const MessageType: TWindowMessageType);
+procedure TCastleWindowBase.MessageOK(const S: string; const MessageType: TWindowMessageType);
 begin
   { TODO }
 end;
 
-function TCastleWindowCustom.MessageYesNo(const S: string;
+function TCastleWindowBase.MessageYesNo(const S: string;
   const MessageType: TWindowMessageType): boolean;
 begin
   { TODO } Result := true;
@@ -281,6 +297,7 @@ end;
 
 procedure TCastleApplication.QuitWhenNoOpenWindows;
 begin
+  Terminate; // set Terminated := true
 end;
 
 function TCastleApplication.ScreenWidth: integer;
@@ -297,12 +314,17 @@ begin
   Result := FScreenHeight;
 end;
 
+function TCastleApplication.ScreenStatusBarScaledHeight: Cardinal;
+begin
+  Result := FScreenStatusBarHeight;
+end;
+
 function TCastleApplication.BackendName: string;
 begin
   Result := 'Library (Using Existing OpenGL Context)';
 end;
 
-procedure TCastleApplication.WarningToCallback(Sender: TObject; const Category, S: string);
+procedure TCastleApplication.WarningToCallback(const Category, S: string);
 var
   sMsg: string;
   szBuffer: PChar;
@@ -347,13 +369,58 @@ begin
     raise Exception.Create('Application.MainWindow not set. One of the game units *must* set Application.MainWindow value in the "initialization" section');
 end;
 
-procedure CGEApp_Open(InitialWidth, InitialHeight, ADpi: cUInt32; ApplicationConfigDirectory: PChar); cdecl;
+procedure CGEApp_Initialize(ApplicationConfigDirectory: PChar); cdecl;
+begin
+  try
+    // use given ApplicationConfigDirectory
+    ApplicationConfigOverride := FilenameToURISafe(InclPathDelim(ApplicationConfigDirectory));
+    WritelnLog('Library initialized, set application config directory to URL: %s', [ApplicationConfigOverride]);
+
+    ApplicationProperties.OnWarning.Add(@Application.WarningToCallback);
+  except
+    on E: TObject do WritelnWarning('CGEApp_Initialize', ExceptMessage(E));
+  end;
+end;
+
+procedure CGEApp_Finalize; cdecl;
+begin
+  try
+    ApplicationProperties.OnWarning.Remove(@Application.WarningToCallback);
+  except
+    on E: TObject do WritelnWarning('CGEApp_Finalize', ExceptMessage(E));
+  end;
+end;
+
+procedure CGEApp_ContextProperties(RedBits, GreenBits, BlueBits, AlphaBits, DepthBits, StencilBits: PCInt); cdecl;
+var
+  W: TCastleWindowBase;
 begin
   try
     CheckMainWindow;
+    W := Application.MainWindow;
+    RedBits    ^ := Max(1, W.RedBits  );
+    GreenBits  ^ := Max(1, W.GreenBits);
+    BlueBits   ^ := Max(1, W.BlueBits );
+    AlphaBits  ^ := W.AlphaBits  ;
+    DepthBits  ^ := W.DepthBits  ;
+    StencilBits^ := W.StencilBits;
+    WritelnLog('Rendering context will be initialized with these (minimal) buffer sizes: red %d, green %d, blue %d, alpha %d, depth %d, stencil %d', [
+      RedBits    ^,
+      GreenBits  ^,
+      BlueBits   ^,
+      AlphaBits  ^,
+      DepthBits  ^,
+      StencilBits^
+    ]);
+  except
+    on E: TObject do WritelnWarning('CGEApp_ContextProperties', ExceptMessage(E));
+  end;
+end;
 
-    // use given ApplicationConfigDirectory
-    ApplicationConfigOverride := FilenameToURISafe(InclPathDelim(ApplicationConfigDirectory));
+procedure CGEApp_Open(InitialWidth, InitialHeight, InitialStatusBarHeight, ADpi: cUInt32); cdecl;
+begin
+  try
+    CheckMainWindow;
 
     { We have to set window sizes, and Application.Screen* sizes,
       before calling MainWindow.Open. That's because EventOpen may already
@@ -361,40 +428,38 @@ begin
       Yes, other CastleWindow backends also make sure that these are set early. }
 
     WritelnLog('Library received CGEApp_Open (window size: %d %d)', [InitialWidth, InitialHeight]);
-    WritelnLog('Library set application config directory to URL: %s', [ApplicationConfigOverride]);
     Application.FScreenWidth := InitialWidth;
     Application.FScreenHeight := InitialHeight;
+    Application.FScreenStatusBarHeight := InitialStatusBarHeight;
     //Window.FullScreen := true; // TODO: setting fullscreen should work like that 4 lines below. Also, should be default?
     Application.MainWindow.FLeft := 0;
     Application.MainWindow.FTop := 0;
     Application.MainWindow.FWidth := InitialWidth;
     Application.MainWindow.FHeight := InitialHeight;
     Application.MainWindow.Dpi := ADpi;
-
-    ApplicationProperties.OnWarning.Add(@Application.WarningToCallback);
     Application.MainWindow.Open;
   except
     on E: TObject do WritelnWarning('CGEApp_Open', ExceptMessage(E));
   end;
 end;
 
-procedure CGEApp_Close; cdecl;
+procedure CGEApp_Close(QuitWhenLastWindowClosed: CBool); cdecl;
 begin
   try
     CheckMainWindow;
-    Application.MainWindow.Close;
-    ApplicationProperties.OnWarning.Remove(@Application.WarningToCallback);
+    Application.MainWindow.Close(QuitWhenLastWindowClosed);
   except
     on E: TObject do WritelnWarning('CGEApp_Close', ExceptMessage(E));
   end;
 end;
 
-procedure CGEApp_Resize(uiViewWidth, uiViewHeight: cUInt32); cdecl;
+procedure CGEApp_Resize(uiViewWidth, uiViewHeight, uiStatusBarHeight: cUInt32); cdecl;
 begin
   try
     CheckMainWindow;
     Application.FScreenWidth  := uiViewWidth;
     Application.FScreenHeight := uiViewHeight;
+    Application.FScreenStatusBarHeight := uiStatusBarHeight;
     Application.MainWindow.DoResize(uiViewWidth, uiViewHeight, false);
   except
     on E: TObject do WritelnWarning('CGEApp_Resize', ExceptMessage(E));
@@ -446,7 +511,7 @@ end;
 
 procedure CGEApp_Motion(X, Y: CInt32; FingerIndex: CInt32); cdecl;
 var
-  W: TCastleWindowCustom;
+  W: TCastleWindowBase;
 begin
   try
     CheckMainWindow;
@@ -480,9 +545,11 @@ procedure CGEApp_KeyDown(eKey: CInt32); cdecl;
 begin
   try
     CheckMainWindow;
-    if TKey(eKey)<>K_None then
+    if TKey(eKey) <> keyNone then
       // TODO: calculate sensible char
-      Application.MainWindow.DoKeyDown(TKey(eKey), #0);
+      Application.MainWindow.DoKeyDown(TKey(eKey), '');
+    // if TKey(eKey) <> keyNone then
+    //   WritelnLog('key down %s', [KeyToStr(TKey(eKey))]);
   except
     on E: TObject do WritelnWarning('CGEApp_KeyDown', ExceptMessage(E));
   end;
@@ -492,10 +559,34 @@ procedure CGEApp_KeyUp(eKey: CInt32); cdecl;
 begin
   try
     CheckMainWindow;
-    if TKey(eKey)<>K_None then
+    if TKey(eKey) <> keyNone then
       Application.MainWindow.DoKeyUp(TKey(eKey));
+    // if TKey(eKey) <> keyNone then
+    //   WritelnLog('key up %s', [KeyToStr(TKey(eKey))]);
   except
     on E: TObject do WritelnWarning('CGEApp_KeyUp', ExceptMessage(E));
+  end;
+end;
+
+procedure CGEApp_JoystickCount(JoystickCount: CInt); cdecl;
+begin
+  try
+    CheckMainWindow;
+    Joysticks.InternalSetJoystickCount(JoystickCount);
+  except
+    on E: TObject do WritelnWarning('CGEApp_JoystickCount', ExceptMessage(E));
+  end;
+end;
+
+procedure CGEApp_JoystickAxis(JoystickIndex: CInt; X, Y: Single); cdecl;
+begin
+  try
+    CheckMainWindow;
+    Joysticks.InternalSetJoystickAxis(JoystickIndex, Vector2(X, Y));
+    // if (X <> 0) or (Y <> 0) then
+    //   WritelnLog('Joy axis %d %f %f %f', [JoystickIndex, X, Y]);
+  except
+    on E: TObject do WritelnWarning('CGEApp_JoystickAxis', ExceptMessage(E));
   end;
 end;
 
@@ -509,6 +600,13 @@ begin
   except
     on E: TObject do WritelnWarning('CGEApp_HandleOpenUrl', ExceptMessage(E));
   end;
+end;
+
+{ TWindowContainer ----------------------------------------------------------- }
+
+function TWindowContainer.SettingMousePositionCausesMotion: Boolean;
+begin
+  Result := true;
 end;
 
 {$endif read_implementation}

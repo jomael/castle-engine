@@ -26,7 +26,7 @@ uses Generics.Collections,
 type
   { Complete timestamp for X3D events.
     For most purposes, you're interested only in it's @link(Seconds) field,
-    this is the amount of continous time that passed (in double-precision
+    this is the amount of continuous time that passed (in double-precision
     seconds).
 
     More precisely, timestamp is actually a sum of @italic(Seconds +
@@ -50,7 +50,7 @@ type
         TCastleSceneCore.IncreaseTime. TCastleSceneCore doesn't require how often
         should IncreaseTime be called, in particular you can call multiple
         times TCastleSceneCore.Press, TCastleSceneCore.Release, TCastleSceneCore.PointingDeviceMove
-        without continously updating time. You can even not update time at all,
+        without continuously updating time. You can even not update time at all,
         and still call TCastleSceneCore.Press and such.
 
         This is a good thing --- it allows TCastleSceneCore to be very flexible.
@@ -74,8 +74,7 @@ type
     Seconds: TFloatTime;
     PlusTicks: Cardinal;
 
-    const
-      Oldest: TX3DTime = (Seconds: OldestTime; PlusTicks: 0);
+    class function Oldest: TX3DTime; static;
 
     class operator {$ifdef FPC}>{$else}GreaterThan{$endif} (const Time1, Time2: TX3DTime): boolean;
     class operator {$ifdef FPC}>={$else}GreaterThanOrEqual{$endif} (const Time1, Time2: TX3DTime): boolean;
@@ -94,6 +93,13 @@ type
   TX3DTimeList = {$ifdef CASTLE_OBJFPC}specialize{$endif} TStructList<TX3DTime>;
 
 implementation
+
+class function TX3DTime.Oldest: TX3DTime; static;
+const
+  R: TX3DTime = (Seconds: OldestTime; PlusTicks: 0);
+begin
+  Result := R;
+end;
 
 class operator TX3DTime.{$ifdef FPC}>{$else}GreaterThan{$endif} (const Time1, Time2: TX3DTime): boolean;
 begin

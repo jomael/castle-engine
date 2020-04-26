@@ -327,16 +327,19 @@
   TMaterialNode_1 = class(TAbstractChildNode)
   strict private
     type
-      TMaterialInfo_1 = class(TMaterialInfo)
+      TMaterialInfo_1 = class(TPhongMaterialInfo)
       strict private
         FNode: TMaterialNode_1;
         FIndex: Integer;
+      protected
+        function GetDiffuseColor: TVector3; override;
+        procedure SetDiffuseColor(const Value: TVector3); override;
+        function GetSpecularColor: TVector3; override;
+        procedure SetSpecularColor(const Value: TVector3); override;
       public
         constructor Create(ANode: TMaterialNode_1; const Index: Integer);
 
         function AmbientColor: TVector3; override;
-        function DiffuseColor: TVector3; override;
-        function SpecularColor: TVector3; override;
         function EmissiveColor: TVector3; override;
         function Shininess: Single; override;
         function ReflectionColor: TVector3; override;
@@ -411,7 +414,7 @@
 
     { Force the material pure emissive (see @link(PureEmissive)) by setting
       other colors to black. }
-    procedure ForcePureEmissive;
+    procedure ForcePureEmissive; deprecated 'use X3D with TUnlitMaterialNode';
 
     class function ForVRMLVersion(const Version: TX3DVersion): boolean;
       override;
@@ -420,7 +423,7 @@
       It is automatically updated when properties of this material change.
       Do not free it yourself, it will be automatically freed when
       this node is freed. }
-    function MaterialInfo(const AIndex: Integer = 0): TMaterialInfo;
+    function MaterialInfo(const AIndex: Integer = 0): TPhongMaterialInfo;
   end;
 
   TMaterialBindingNode_1 = class(TAbstractChildNode)
@@ -869,15 +872,15 @@ end;
 
 destructor TAsciiTextNode_1.Destroy;
 begin
-  { actually FreeAndNil would also be OK, as this is never
-    a child of another node. But for safety... }
-  FreeIfUnusedAndNil(FFontTextureNode);
+  if X3DCache <> nil then
+    X3DCache.FreeFontTexture(FFontTextureNode);
   inherited;
 end;
 
 procedure TAsciiTextNode_1.FontChanged;
 begin
-  FreeIfUnusedAndNil(FFontTextureNode);
+  if X3DCache <> nil then
+    X3DCache.FreeFontTexture(FFontTextureNode);
 end;
 
 class function TAsciiTextNode_1.ClassX3DType: string;
@@ -922,7 +925,7 @@ begin
 
     TextProxy(Self,
       State.VRML1State.FontStyle.FdSize.Value, FdSpacing.Value, Justify, fjFirst,
-      FdString.Items, State.VRML1State.FontStyle.Font,
+      FdString.Items, -1, State.VRML1State.FontStyle.Font,
       false, nil, nil, nil,
       CoordNode.FdPoint, TexCoordNode.FdPoint, nil);
 
@@ -943,7 +946,7 @@ begin
   except FreeAndNil(FaceSet); raise end;
 
   if FFontTextureNode = nil then
-    FFontTextureNode := CreateFontTextureNode(
+    FFontTextureNode := X3DCache.LoadFontTexture(
       State.VRML1State.FontStyle.Font,
       State.VRML1State.FontStyle.Blending);
 end;
@@ -1375,28 +1378,28 @@ procedure TMaterialNode_1.CreateNode;
 begin
   inherited;
 
-  FFdAmbientColor := TMFColor.Create(Self, true, 'ambientColor', [TMaterialInfo.DefaultAmbientColor]);
+  FFdAmbientColor := TMFColor.Create(Self, true, 'ambientColor', [TPhongMaterialInfo.DefaultAmbientColor]);
    FdAmbientColor.ChangesAlways := [chVisibleVRML1State];
   AddField(FFdAmbientColor);
 
-  FFdDiffuseColor := TMFColor.Create(Self, true, 'diffuseColor', [TMaterialInfo.DefaultDiffuseColor]);
+  FFdDiffuseColor := TMFColor.Create(Self, true, 'diffuseColor', [TPhongMaterialInfo.DefaultDiffuseColor]);
    FdDiffuseColor.ChangesAlways := [chVisibleVRML1State];
   AddField(FFdDiffuseColor);
 
-  FFdSpecularColor := TMFColor.Create(Self, true, 'specularColor', [TMaterialInfo.DefaultSpecularColor]);
+  FFdSpecularColor := TMFColor.Create(Self, true, 'specularColor', [TPhongMaterialInfo.DefaultSpecularColor]);
    FdSpecularColor.ChangesAlways := [chVisibleVRML1State];
   AddField(FFdSpecularColor);
 
-  FFdEmissiveColor := TMFColor.Create(Self, true, 'emissiveColor', [TMaterialInfo.DefaultEmissiveColor]);
+  FFdEmissiveColor := TMFColor.Create(Self, true, 'emissiveColor', [TPhongMaterialInfo.DefaultEmissiveColor]);
    FdEmissiveColor.ChangesAlways := [chVisibleVRML1State];
   AddField(FFdEmissiveColor);
 
-  FFdShininess := TMFFloat.Create(Self, true, 'shininess', [TMaterialInfo.DefaultShininess]);
+  FFdShininess := TMFFloat.Create(Self, true, 'shininess', [TPhongMaterialInfo.DefaultShininess]);
    FdShininess.ChangesAlways := [chVisibleVRML1State];
   AddField(FFdShininess);
 
   FFdTransparency := TMFFloat.Create(Self, true, 'transparency', [TMaterialInfo.DefaultTransparency]);
-   FdTransparency.ChangesAlways := [chVisibleVRML1State, chUseBlending];
+   FdTransparency.ChangesAlways := [chVisibleVRML1State, chAlphaChannel];
   AddField(FFdTransparency);
 
   FFdMirror := TMFFloat.Create(Self, true, 'mirror', [0.0]);
@@ -1419,11 +1422,11 @@ begin
    FdTransDiffuse.ChangesAlways := [chVisibleVRML1State];
   AddField(FFdTransDiffuse);
 
-  FFdReflSpecularExp := TMFFloat.Create(Self, true, 'reflSpecularExp', [TMaterialInfo.DefaultReflSpecularExp]);
+  FFdReflSpecularExp := TMFFloat.Create(Self, true, 'reflSpecularExp', [TPhongMaterialInfo.DefaultReflSpecularExp]);
    FdReflSpecularExp.ChangesAlways := [chVisibleVRML1State];
   AddField(FFdReflSpecularExp);
 
-  FFdTransSpecularExp := TMFFloat.Create(Self, true, 'transSpecularExp', [TMaterialInfo.DefaultTransSpecularExp]);
+  FFdTransSpecularExp := TMFFloat.Create(Self, true, 'transSpecularExp', [TPhongMaterialInfo.DefaultTransSpecularExp]);
    FdTransSpecularExp.ChangesAlways := [chVisibleVRML1State];
   AddField(FFdTransSpecularExp);
 
@@ -1466,7 +1469,7 @@ begin
   Result := Version.Major <= 1;
 end;
 
-function TMaterialNode_1.MaterialInfo(const AIndex: Integer): TMaterialInfo;
+function TMaterialNode_1.MaterialInfo(const AIndex: Integer): TPhongMaterialInfo;
 begin
   if AIndex >= Length(FMaterialInfo) then
     SetLength(FMaterialInfo, AIndex + 1);
@@ -1490,31 +1493,41 @@ var
 begin
   A := FNode.FdAmbientColor.Items;
   if A.Count = 0 then
-    Result := TMaterialInfo.DefaultAmbientColor
+    Result := TPhongMaterialInfo.DefaultAmbientColor
   else
     Result := A.List^[Min(FIndex, A.Count - 1)];
 end;
 
-function TMaterialNode_1.TMaterialInfo_1.DiffuseColor: TVector3;
+function TMaterialNode_1.TMaterialInfo_1.GetDiffuseColor: TVector3;
 var
   A: TVector3List;
 begin
   A := FNode.FdDiffuseColor.Items;
   if A.Count = 0 then
-    Result := TMaterialInfo.DefaultDiffuseColor
+    Result := TPhongMaterialInfo.DefaultDiffuseColor
   else
     Result := A.List^[Min(FIndex, A.Count - 1)];
 end;
 
-function TMaterialNode_1.TMaterialInfo_1.SpecularColor: TVector3;
+procedure TMaterialNode_1.TMaterialInfo_1.SetDiffuseColor(const Value: TVector3);
+begin
+  FNode.FdDiffuseColor.Send([Value]);
+end;
+
+function TMaterialNode_1.TMaterialInfo_1.GetSpecularColor: TVector3;
 var
   A: TVector3List;
 begin
   A := FNode.FdSpecularColor.Items;
   if A.Count = 0 then
-    Result := TMaterialInfo.DefaultSpecularColor
+    Result := TPhongMaterialInfo.DefaultSpecularColor
   else
     Result := A.List^[Min(FIndex, A.Count - 1)];
+end;
+
+procedure TMaterialNode_1.TMaterialInfo_1.SetSpecularColor(const Value: TVector3);
+begin
+  FNode.FdSpecularColor.Send([Value]);
 end;
 
 function TMaterialNode_1.TMaterialInfo_1.EmissiveColor: TVector3;
@@ -1523,7 +1536,7 @@ var
 begin
   A := FNode.FdEmissiveColor.Items;
   if A.Count = 0 then
-    Result := TMaterialInfo.DefaultEmissiveColor
+    Result := TPhongMaterialInfo.DefaultEmissiveColor
   else
     Result := A.List^[Min(FIndex, A.Count - 1)];
 end;
@@ -1534,7 +1547,7 @@ var
 begin
   A := FNode.FdShininess.Items;
   if A.Count = 0 then
-    Result := TMaterialInfo.DefaultShininess
+    Result := TPhongMaterialInfo.DefaultShininess
   else
     Result := A.List^[Min(FIndex, A.Count - 1)];
 end;
@@ -1570,7 +1583,7 @@ var
 begin
   A := FNode.FdReflSpecular.Items;
   if A.Count = 0 then
-    CalculateReflSpecular(Result)
+    Result := inherited
   else
     Result := A.List^[Min(FIndex, A.Count - 1)];
 end;
@@ -1581,7 +1594,7 @@ var
 begin
   A := FNode.FdReflDiffuse.Items;
   if A.Count = 0 then
-    CalculateReflDiffuse(Result)
+    Result := inherited
   else
     Result := A.List^[Min(FIndex, A.Count - 1)];
 end;
@@ -1592,7 +1605,7 @@ var
 begin
   A := FNode.FdTransSpecular.Items;
   if A.Count = 0 then
-    CalculateTransSpecular(Result)
+    Result := inherited
   else
     Result := A.List^[Min(FIndex, A.Count - 1)];
 end;
@@ -1603,7 +1616,7 @@ var
 begin
   A := FNode.FdTransDiffuse.Items;
   if A.Count = 0 then
-    CalculateTransDiffuse(Result)
+    Result := inherited
   else
     Result := A.List^[Min(FIndex, A.Count - 1)];
 end;
@@ -1614,7 +1627,7 @@ var
 begin
   A := FNode.FdReflSpecularExp.Items;
   if A.Count = 0 then
-    Result := TMaterialInfo.DefaultReflSpecularExp
+    Result := inherited
   else
     Result := A.List^[Min(FIndex, A.Count - 1)];
 end;
@@ -1625,7 +1638,7 @@ var
 begin
   A := FNode.FdTransSpecularExp.Items;
   if A.Count = 0 then
-    Result := TMaterialInfo.DefaultTransSpecularExp
+    Result := inherited
   else
     Result := A.List^[Min(FIndex, A.Count - 1)];
 end;
@@ -1709,8 +1722,8 @@ begin
   if FdFilename.Value <> '' then
   try
     FullUrl := PathFromBaseUrl(FdFilename.Value);
-    FTextureImage := X3DCache.TextureImage_IncReference(FullUrl, FTextureComposite,
-      FAlphaChannelData);
+    FTextureImage := X3DCache.TextureImage_IncReference(
+      FullUrl, FTextureComposite, FAlphaChannelData);
     FTextureUsedFullUrl := FullUrl;
     CacheUsed := true;
     Exit;
@@ -1930,9 +1943,8 @@ begin
 
   if not TryInverseHarder(Matrix, InvertedMatrix) then
   begin
-    if Log then
-      WritelnLogMultiline('Matrix',
-        'Cannot invert matrix:' + NL + Matrix.ToRawString('  '));
+    WritelnLogMultiline('Matrix',
+      'Cannot invert matrix:' + NL + Matrix.ToRawString('  '));
     InvertedMatrix := TMatrix4.Identity;
   end;
 end;
@@ -2173,7 +2185,7 @@ begin
   inherited;
 
   { Default ambientIntensity value for VRML 1.0.
-    See http://castle-engine.sourceforge.net/x3d_extensions.php#ext_light_attenuation }
+    See https://castle-engine.io/x3d_extensions.php#ext_light_attenuation }
   FdAmbientIntensity.Value := -1;
   FdAmbientIntensity.DefaultValue := -1;
 end;
@@ -2195,7 +2207,7 @@ begin
   inherited;
 
   { Default ambientIntensity value for VRML 1.0.
-    See http://castle-engine.sourceforge.net/x3d_extensions.php#ext_light_attenuation }
+    See https://castle-engine.io/x3d_extensions.php#ext_light_attenuation }
   FdAmbientIntensity.Value := -1;
   FdAmbientIntensity.DefaultValue := -1;
 
@@ -2226,7 +2238,7 @@ begin
   inherited;
 
   { Default ambientIntensity value for VRML 1.0.
-    See http://castle-engine.sourceforge.net/x3d_extensions.php#ext_light_attenuation }
+    See https://castle-engine.io/x3d_extensions.php#ext_light_attenuation }
   FdAmbientIntensity.Value := -1;
   FdAmbientIntensity.DefaultValue := -1;
 

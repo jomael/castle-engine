@@ -38,14 +38,14 @@ type
 
   { Options for the @link(Download) function. }
   TStreamOption = (
-    { Force result to be a TMemoryStream,
+    { Force result to be a TCustomMemoryStream,
       with contents fully loaded to the memory,
       and freely seekable (you can move back and forth within).
       Without this option, @link(Download) may return other streams,
       for example TFileStream (that may not have good buffering, depending on OS)
       or TBase64DecodingStream (that may not allow seeking).
 
-      Using TMemoryStream means that reading is fast and comfortable,
+      Using TCustomMemoryStream means that reading is fast and comfortable,
       but eats memory and doesn't allow to simultaneously read and process
       the contents (the file must be fully loaded, e.g. downloaded from
       the Internet, and ungzipped, before this function returns).
@@ -88,26 +88,30 @@ type
 
   It also automatically supports protocols to embed script contents:
   ecmascript, javascript (see VRML and X3D specifications),
-  castlescript, kambiscript (see http://castle-engine.sourceforge.net/castle_script.php),
-  compiled (http://castle-engine.sourceforge.net/x3d_extensions.php#section_ext_script_compiled).
+  castlescript, kambiscript (see https://castle-engine.io/castle_script.php),
+  compiled (https://castle-engine.io/x3d_extensions.php#section_ext_script_compiled).
   The MIME type for these is implied by the protocol (like "application/javascript"
   for ecmascript/javascript), and the returned stream simply contains
   script code.
 
-  Set EnableNetwork to @true to have also support for network protocols.
-  Right now this means only http, handled by FpHttpClient.
+  Set EnableNetwork to @true to support network protocols.
+  Right now this means http and (in FPC >= 3.2.0) https, handled by FpHttpClient.
   The MIME type for such content is usually reported by the http server
   (but if the server doesn't report MIME type, we still try to guess it,
   looking at URL using URIMimeType).
 
-  On Android, URLs that indicate assets (files packaged inside .apk)
-  are also supported, as @code(assets:/my_file.png).
+  On Android, you should use the "read_external_storage"
+  service to be able to read storage files (e.g. from SD card).
+  This means files accessed by the 'file' protocol.
+  See https://github.com/castle-engine/castle-engine/wiki/Android-Services .
 
-  Note if you use a network URL (like http://...) and you read from this
-  stream that you make a @bold(synchronous downloader).
-  Which means that your application will wait until the data arrives
-  from the Internet. This is why http:// support is disabled here
-  by default (see @link(EnableNetwork)).
+  Note that this is a @italic(synchronous downloader).
+  Which means that if you use a network URL (like http://...) then your
+  application will wait until the data arrives from the Internet.
+  There may be a timeout of the request (so your application will not hang
+  indefinitely), but still your code (or user) have no way to cancel or watch
+  the progress of this operation.
+  This is why network support is disabled by default (see @link(EnableNetwork)).
   This is sometimes acceptable (e.g. if you're
   waiting during the "loading" process, and the data just @italic(has)
   to be downloaded in order to continue), and it's really easy to use
@@ -130,9 +134,9 @@ type
     So, to be really safe, be ready that this function may raise @italic(any)
     Exception class.)
 }
-function Download(const URL: string; const Options: TStreamOptions = []): TStream;
+function Download(const URL: string; const Options: TStreamOptions = []): TStream; overload;
 function Download(const URL: string; const Options: TStreamOptions;
-  out MimeType: string): TStream;
+  out MimeType: string): TStream; overload;
 
 (* TODO: API for asynchronous downloader is below, not implemented yet.
 
@@ -227,7 +231,7 @@ type
     property FreeOnFinish: boolean read write default false;
   end;
 
-  TDownloadList = specialize TObjectList<TDownload>;
+  TDownloadList = {$ifdef CASTLE_OBJFPC}specialize{$endif} TObjectList<TDownload>;
 
 { List of currently existing TDownload instances.
   You can use this e.g. to implement a GUI to show ongoing downloads.
@@ -237,8 +241,18 @@ function Downloads: TDownloadList;
 
 { Create a stream to save a given URL, for example create a TFileStream
   to save a file for a @code(file) URL. In other words, perform @italic(upload).
-  Right now, this only works for @code(file) URLs, and the only advantage
-  it has over manually creating TFileStream is that this accepts URLs.
+
+  Right now, this only works for @code(file) and @code(castle-data) URLs,
+  and (as all engine functions) can also accept simple filenames.
+
+  When saving to @code(castle-data) URL, remember that on some platforms
+  the game data is read-only. Use this only during development on desktop,
+  when you know that "data" is just your regular data directory.
+
+  On Android, you should use the "write_external_storage"
+  service to be able to write storage files (e.g. to SD card).
+  This means files accessed by the 'file' protocol.
+  See https://github.com/castle-engine/castle-engine/wiki/Android-Services .
 
   @raises(ESaveError In case of problems saving this URL.)
 
@@ -250,6 +264,25 @@ function Downloads: TDownloadList;
     So be ready that this function may raise @italic(any) Exception class.)
 }
 function URLSaveStream(const URL: string; const Options: TSaveStreamOptions = []): TStream;
+
+type
+  { Event called when @link(Download) function wants to download URL with this protocol.
+    Use with @link(RegisterUrlProtocol). }
+  TUrlReadEvent = function (
+    const Url: string; out MimeType: string): TStream of object;
+
+  { Event called when @link(URLSaveStream) function wants to save URL with this protocol.
+    Use with @link(RegisterUrlProtocol). }
+  TUrlWriteEvent = function(const Url: string): TStream of object;
+
+  EProtocolAlreadyRegistered = class(Exception);
+
+{ Register how we can load and/or save the URLs with given protocol.
+  One (or even both) of given events (ReadEvent, WriteEvent) can be @nil.
+  @raises(EProtocolAlreadyRegistered If the protocol handlers are already registered.) }
+procedure RegisterUrlProtocol(const Protocol: String;
+  const ReadEvent: TUrlReadEvent;
+  const WriteEvent: TUrlWriteEvent);
 
 var
   { Log (through CastleLog) all loading, that is: all calls to @link(Download).
@@ -298,7 +331,7 @@ type
     instance, or you can read an URL. Reading from URL supports all kinds
     of URL protocols supportted by @link(Download),
     including @code(file), @code(http) and Android @code(assets)
-    (see http://castle-engine.sourceforge.net/tutorial_network.php ).
+    (see https://castle-engine.io/tutorial_network.php ).
 
     Includes comfortable @link(Readln) routine to read line by line
     (lines may be terminated in any OS convention).
@@ -377,13 +410,110 @@ type
     procedure Writeln(const S: string; const Args: array of const); overload;
   end;
 
+  TStringsHelper = class helper for TStrings
+    { Load the contents from URL.
+      Uses Castle Game Engine @link(Download) to get the contents,
+      then uses standard LoadFromStream to load them.
+
+      The meaning (and default behaviour) of optional AEncoding
+      is the same as for TStrings.LoadFromFile and TStrings.LoadFromStream. }
+    procedure LoadFromURL(const URL: string); overload;
+    procedure LoadFromURL(const URL: string; const AEncoding: TEncoding); overload;
+
+    { Save the contents to URL.
+      Uses standard SaveToStream combined with
+      Castle Game Engine @link(URLSaveStream) to save the contents. }
+    procedure SaveToURL(const URL: string);
+  end;
+
 implementation
 
-uses URIParser, Math,
+uses URIParser, Math, Generics.Collections,
   CastleURIUtils, CastleUtils, CastleLog, CastleInternalZStream,
   CastleClassUtils, CastleDataURI, CastleProgress, CastleStringUtils,
-  CastleApplicationProperties
-  {$ifdef ANDROID}, CastleAndroidInternalAssetStream {$endif};
+  CastleApplicationProperties, CastleFilesUtils
+  {$ifdef ANDROID}, CastleAndroidInternalAssetStream, CastleMessaging {$endif};
+
+{ registering URL protocols -------------------------------------------------- }
+
+type
+  TRegisteredProtocol = class
+    Protocol: String;
+    ReadEvent: TUrlReadEvent;
+    WriteEvent: TUrlWriteEvent;
+  end;
+
+  TRegisteredProtocols = class({$ifdef CASTLE_OBJFPC}specialize{$endif} TObjectList<TRegisteredProtocol>)
+    { @nil if not found. }
+    function Find(const Protocol: String): TRegisteredProtocol;
+
+    procedure Add(const Protocol: String;
+      const ReadEvent: TUrlReadEvent;
+      const WriteEvent: TUrlWriteEvent); reintroduce;
+  end;
+
+function TRegisteredProtocols.Find(const Protocol: String): TRegisteredProtocol;
+begin
+  for Result in Self do
+    if Result.Protocol = Protocol then
+      Exit;
+  Result := nil;
+end;
+
+procedure TRegisteredProtocols.Add(const Protocol: String;
+  const ReadEvent: TUrlReadEvent;
+  const WriteEvent: TUrlWriteEvent);
+var
+  P: TRegisteredProtocol;
+begin
+  if Find(Protocol) <> nil then
+    raise EProtocolAlreadyRegistered.CreateFmt('URL protocol "%s" is already registered', [Protocol]);
+  P := TRegisteredProtocol.Create;
+  P.Protocol := Protocol;
+  P.ReadEvent := ReadEvent;
+  P.WriteEvent := WriteEvent;
+  inherited Add(P);
+end;
+
+var
+  FRegisteredProtocols: TRegisteredProtocols;
+
+function RegisteredProtocols: TRegisteredProtocols;
+begin
+  { initialize FRegisteredProtocols on-demand }
+  if FRegisteredProtocols = nil then
+  begin
+    FRegisteredProtocols := TRegisteredProtocols.Create(true);
+
+    // register default protocols, handled internally in Download or URLSaveStream
+    {$if defined(ANDROID)}
+    FRegisteredProtocols.Add('http', nil, nil);
+    FRegisteredProtocols.Add('https', nil, nil);
+    {$elseif defined(HAS_FP_HTTP_CLIENT)}
+    FRegisteredProtocols.Add('http', nil, nil);
+    FRegisteredProtocols.Add('https', nil, nil);
+    {$endif}
+    FRegisteredProtocols.Add('', nil, nil);
+    FRegisteredProtocols.Add('file', nil, nil);
+    FRegisteredProtocols.Add('assets', nil, nil);
+    FRegisteredProtocols.Add('castle-android-assets', nil, nil);
+    FRegisteredProtocols.Add('castle-data', nil, nil);
+    FRegisteredProtocols.Add('data', nil, nil);
+    FRegisteredProtocols.Add('ecmascript', nil, nil);
+    FRegisteredProtocols.Add('javascript', nil, nil);
+    FRegisteredProtocols.Add('castlescript', nil, nil);
+    FRegisteredProtocols.Add('kambiscript', nil, nil);
+    FRegisteredProtocols.Add('compiled', nil, nil);
+  end;
+  Result := FRegisteredProtocols;
+end;
+
+procedure RegisterUrlProtocol(const Protocol: String;
+  const ReadEvent: TUrlReadEvent;
+  const WriteEvent: TUrlWriteEvent);
+begin
+  RegisteredProtocols.Add(Protocol, ReadEvent, WriteEvent);
+end;
 
 { TProgressMemoryStream ------------------------------------------------------ }
 
@@ -578,6 +708,56 @@ end;
 
 {$endif HAS_FP_HTTP_CLIENT}
 
+{$ifdef ANDROID}
+type
+  TAndroidDownloadService = class
+    Finished, FinishedSuccess: boolean;
+    TemporaryFileName, ErrorMessage: string;
+    function HandleDownloadMessages(const Received: TCastleStringList): boolean;
+    function Wait(const URL: string): TStream;
+  end;
+
+function TAndroidDownloadService.HandleDownloadMessages(const Received: TCastleStringList): boolean;
+begin
+  if (Received.Count = 2) and (Received[0] = 'download-error') then
+  begin
+    Finished := true;
+    FinishedSuccess := false;
+    ErrorMessage := Received[1];
+    Result := true;
+  end;
+  if (Received.Count = 2) and (Received[0] = 'download-finished') then
+  begin
+    Finished := true;
+    FinishedSuccess := true;
+    TemporaryFileName := Received[1];
+    Result := true;
+  end;
+end;
+
+function TAndroidDownloadService.Wait(const URL: string): TStream;
+begin
+  Finished := false;
+  Messaging.OnReceive.Add({$ifdef CASTLE_OBJFPC}@{$endif} HandleDownloadMessages);
+  Messaging.Send(['download-url', URL]);
+  try
+    { TODO: introduce download-progress messages,
+       use them to make Progress.Init/Step/Fini calls,
+       allowing to show user progress bar during this loop. }
+    repeat
+      ApplicationProperties._Update; // process CastleMessages
+      Sleep(200)
+    until Finished;
+  finally
+    Messaging.OnReceive.Remove({$ifdef CASTLE_OBJFPC}@{$endif} HandleDownloadMessages);
+  end;
+  if FinishedSuccess then
+    Result := TFileStream.Create(TemporaryFileName, fmOpenRead)
+  else
+    raise Exception.Create(ErrorMessage);
+end;
+{$endif ANDROID}
+
 { Load FileName to TMemoryStream. }
 function CreateMemoryStream(const FileName: string): TMemoryStream; overload;
 begin
@@ -590,7 +770,8 @@ begin
   end;
 end;
 
-{ Load (and free and nil) Stream to TMemoryStream. }
+{ Load Stream to TMemoryStream.
+  Sets given Stream to @nil (it is freed by this function). }
 function CreateMemoryStream(var Stream: TStream): TMemoryStream; overload;
 begin
   Result := TMemoryStream.Create;
@@ -604,7 +785,8 @@ begin
 end;
 
 { Decompress gzipped FileName.
-  When ForceMemoryStream, always returns TMemoryStream. }
+  When ForceMemoryStream, always returns TMemoryStream.
+  Sets given Stream to @nil (it is owned by us now, possibly it is freed by this function). }
 function ReadGzipped(var Stream: TStream; const ForceMemoryStream: boolean): TStream;
 var
   NewResult: TMemoryStream;
@@ -630,7 +812,10 @@ end;
 procedure CheckFileAccessSafe(const URL: string);
 begin
   if not ApplicationProperties._FileAccessSafe then
-    WritelnWarning('Opening file "%s" before the Application.OnInitialize was called. This is not reliable on mobile platforms (Android, iOS). This usually happens if you open a file from the "initialization" section of a unit. You should do it in Application.OnInitialize instead.',
+    WritelnWarning('Opening file "%s" before the Application.OnInitialize was called. ' +
+      'This is not reliable on mobile platforms (Android, iOS). ' +
+      'This usually happens if you open a file from the "initialization" section of a unit. ' +
+      'You should do it in Application.OnInitialize instead.',
       [URL]);
 end;
 
@@ -645,14 +830,38 @@ var
   DataURI: TDataURI;
   {$ifdef ANDROID}
   AssetStream: TReadAssetStream;
+  DownloadService: TAndroidDownloadService;
   {$endif}
+  RegisteredProtocol: TRegisteredProtocol;
+  UnderlyingStream: TStream;
 const
   MaxRedirects = 32;
 begin
   P := URIProtocol(URL);
 
-  if LogAllLoading and Log then
+  // do not log castle-data:/ protocol, as this just causes recursive call to Download
+  if LogAllLoading and (P <> 'castle-data') then
     WritelnLog('Loading', 'Loading "%s"', [URIDisplay(URL)]);
+
+  RegisteredProtocol := RegisteredProtocols.Find(P);
+
+  {$ifdef ANDROID}
+  if (P = 'http') or (P = 'https') then
+  begin
+    if not EnableNetwork then
+      raise EDownloadError.Create('Downloading network resources (from "http" or "https" protocols) is not enabled');
+
+    CheckFileAccessSafe(URL);
+    WritelnLog('Network', 'Download service started for "%s"', [URIDisplay(URL)]);
+    DownloadService := TAndroidDownloadService.Create;
+    try
+      Result := DownloadService.Wait(URL);
+      MimeType := URIMimeType(URL);
+    finally
+      FreeAndNil(DownloadService);
+    end;
+  end else
+  {$endif ANDROID}
 
   {$ifdef HAS_FP_HTTP_CLIENT}
   { network protocols: get data into a new TMemoryStream using FpHttpClient }
@@ -660,6 +869,14 @@ begin
   begin
     if not EnableNetwork then
       raise EDownloadError.Create('Downloading network resources (from "http" or "https" protocols) is not enabled');
+
+    {$ifdef VER3_0}
+    if P = 'https' then
+      { Testcase: FPC 3.0.4, Linux/x86_64:
+        TFPCustomHTTPClient fails with Access Violation on https URLs.
+        TODO: Test on Windows/x86_64. }
+      raise EDownloadError.Create('Downloading using "https" protocol does not work when the application is compiled with FPC 3.0.x. Use newer FPC (and add OpenSSLSockets unit to the uses clause).');
+    {$endif}
 
     CheckFileAccessSafe(URL);
     WritelnLog('Network', 'Downloading "%s"', [URIDisplay(URL)]);
@@ -717,6 +934,12 @@ begin
     {$endif}
   end else
 
+  { castle-data: to access application data, https://castle-engine.io/manual_data_directory.php }
+  if P = 'castle-data' then
+  begin
+    Result := Download(ResolveCastleDataURL(URL), Options, MimeType);
+  end else
+
   { data: URI scheme }
   if P = 'data' then
   begin
@@ -755,6 +978,26 @@ begin
     Result := MemoryStreamLoadFromString(URIDeleteProtocol(URL));
   end else
 
+  { Check RegisteredProtocol at the end, since above we handle some protocols.
+    TODO: Move all protocol reading to appropriate callbacks registered
+    FRegisteredProtocols.Add. }
+  if RegisteredProtocol <> nil then
+  begin
+    if Assigned(RegisteredProtocol.ReadEvent) then
+    begin
+      UnderlyingStream := RegisteredProtocol.ReadEvent(URL, MimeType);
+      // unpack gzip if requested
+      if soGzip in Options then
+        Result := ReadGzipped(UnderlyingStream, soForceMemoryStream in Options)
+      else
+      if soForceMemoryStream in Options then
+        Result := CreateMemoryStream(UnderlyingStream)
+      else
+        Result := UnderlyingStream;
+    end else
+      raise EDownloadError.CreateFmt('Cannot read URLs with protocol "%s"', [P]);
+  end else
+
   begin
     raise EDownloadError.CreateFmt('Downloading from protocol "%s" is not supported', [P]);
   end;
@@ -775,24 +1018,62 @@ end;
 { Global functions to save --------------------------------------------------- }
 
 function URLSaveStream(const URL: string; const Options: TSaveStreamOptions): TStream;
+
+  function FileSaveStream(const FileName: String; const Options: TSaveStreamOptions): TStream;
+  begin
+    if ssoGzip in Options then
+    begin
+      Result := TGZFileStream.Create(TFileStream.Create(FileName, fmCreate), true);
+    end else
+      Result := TFileStream.Create(FileName, fmCreate);
+  end;
+
 var
   P, FileName: string;
+  RegisteredProtocol: TRegisteredProtocol;
+  UnderlyingStream: TStream;
 begin
   P := URIProtocol(URL);
+
+  RegisteredProtocol := RegisteredProtocols.Find(P);
+
   if P = '' then
-    FileName := URL else
+  begin
+    FileName := URL;
+    Result := FileSaveStream(FileName, Options);
+  end else
+
   if P = 'file' then
   begin
     FileName := URIToFilenameSafe(URL);
     if FileName = '' then
       raise ESaveError.CreateFmt('Cannot convert URL to a filename: "%s"', [URL]);
+    Result := FileSaveStream(FileName, Options);
   end else
-    raise ESaveError.CreateFmt('Saving of URL with protocol "%s" not possible', [P]);
-  if ssoGzip in Options then
+
+  if P = 'castle-data' then
   begin
-    Result := TGZFileStream.Create(TFileStream.Create(FileName, fmCreate), true);
+    Result := URLSaveStream(ResolveCastleDataURL(URL), Options);
   end else
-    Result := TFileStream.Create(FileName, fmCreate);
+
+  { Check RegisteredProtocol at the end, since above we handle some protocols.
+    TODO: Move all protocol writing to appropriate callbacks registered
+    FRegisteredProtocols.Add. }
+  if RegisteredProtocol <> nil then
+  begin
+    if Assigned(RegisteredProtocol.WriteEvent) then
+    begin
+      UnderlyingStream := RegisteredProtocol.WriteEvent(URL);
+      // Compress using gzip, if requested in Options
+      if ssoGzip in Options then
+        Result := TGZFileStream.Create(UnderlyingStream, true)
+      else
+        Result := UnderlyingStream;
+    end else
+      raise EDownloadError.CreateFmt('Cannot write URLs with protocol "%s"', [P]);
+  end else
+
+    raise ESaveError.CreateFmt('Saving of URL with protocol "%s" not possible', [P]);
 end;
 
 procedure StreamSaveToFile(Stream: TStream; const URL: string);
@@ -986,4 +1267,39 @@ begin
   WritelnStr(FStream, Format(S, Args));
 end;
 
+{ TStringsHelper ---------------------------------------------------------- }
+
+procedure TStringsHelper.LoadFromURL(const URL: string);
+var
+  Stream: TStream;
+begin
+  Stream := Download(URL);
+  try
+    LoadFromStream(Stream);
+  finally FreeAndNil(Stream) end;
+end;
+
+procedure TStringsHelper.LoadFromURL(const URL: string; const AEncoding: TEncoding);
+var
+  Stream: TStream;
+begin
+  Stream := Download(URL);
+  try
+    LoadFromStream(Stream {$ifndef VER3_0}, AEncoding {$endif});
+  finally FreeAndNil(Stream) end;
+end;
+
+procedure TStringsHelper.SaveToURL(const URL: string);
+var
+  Stream: TStream;
+begin
+  Stream := URLSaveStream(URL);
+  try
+    SaveToStream(Stream);
+  finally FreeAndNil(Stream) end;
+end;
+
+initialization
+finalization
+  FreeAndNil(FRegisteredProtocols);
 end.

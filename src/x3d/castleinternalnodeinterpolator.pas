@@ -22,7 +22,7 @@ unit CastleInternalNodeInterpolator;
 interface
 
 uses Classes, Generics.Collections,
-  CastleUtils, X3DNodes, CastleBoxes;
+  CastleUtils, X3DNodes, CastleBoxes, X3DLoadInternalGLTF;
 
 type
   TGetKeyNodeWithTime = procedure (const Index: Cardinal;
@@ -108,7 +108,7 @@ type
       end;
 
     { Load animation data from castle-anim-frames file (in a given URL) to a set of variables.
-      See [http://castle-engine.sourceforge.net/castle_animation_frames.php]
+      See [https://castle-engine.io/castle_animation_frames.php]
       for a specification of the file format.
 
       If you want a comfortable way to load castle-anim-frames from a file,
@@ -226,12 +226,12 @@ procedure CheckNodesStructurallyEqual(Model1, Model2: TX3DNode;
   var
     I: Integer;
   begin
-    if Field1.Items.Count <> Field2.Items.Count then
+    if Field1.Count <> Field2.Count then
       raise EModelsStructureDifferent.CreateFmt(
         'Different number of children in MFNode field "%s": %d vs %d',
-        [Field1.NiceName, Field1.Items.Count, Field2.Items.Count]);
+        [Field1.NiceName, Field1.Count, Field2.Count]);
 
-    for I := 0 to Field1.Items.Count - 1 do
+    for I := 0 to Field1.Count - 1 do
       CheckNodesStructurallyEqual(Field1[I], Field2[I], Epsilon);
   end;
 
@@ -411,8 +411,8 @@ function NodesMerge(Model1, Model2: TX3DNode;
 
     { Note that we already know that Counts are equals,
       checked already by CheckNodesStructurallyEqual. }
-    Assert(Field1.Items.Count = Field2.Items.Count);
-    for I := 0 to Field1.Items.Count - 1 do
+    Assert(Field1.Count = Field2.Count);
+    for I := 0 to Field1.Count - 1 do
     begin
       if NodesMerge(Field1[I], Field2[I], Epsilon) then
       begin
@@ -496,7 +496,7 @@ function NodesLerp(const A: Single; Model1, Model2: TX3DNode): TX3DNode;
   var
     I: Integer;
   begin
-    for I := 0 to Field1.Items.Count - 1 do
+    for I := 0 to Field1.Count - 1 do
       Target.Add(NodesLerp(A, Field1[I], Field2[I]));
   end;
 
@@ -702,10 +702,9 @@ begin
       except
         on E: EModelsStructureDifferent do
         begin
-          if Log then
-            WritelnLog('TNodeInterpolator', Format(
-              'Nodes %d and %d structurally different, so animation will not be smoothed between them: ',
-              [I - 1, I]) + E.Message);
+          WritelnLog('TNodeInterpolator', Format(
+            'Nodes %d and %d structurally different, so animation will not be smoothed between them: ',
+            [I - 1, I]) + E.Message);
         end;
       end;
 
@@ -755,6 +754,16 @@ end;
 
 class function TNodeInterpolator.LoadAnimFramesToKeyNodes(const URL: string): TAnimationList;
 
+  function LoadGLTFFromString(const Contents: String; const BaseUrl: String): TX3DRootNode;
+  var
+    SStream: TStringStream;
+  begin
+    SStream := TStringStream.Create(Contents);
+    try
+      Result := LoadGLTF(SStream, BaseUrl);
+    finally FreeAndNil(SStream) end;
+  end;
+
   { Load <animation> data from a given XML element to a set of variables.
 
     @param(BaseUrl The URL from which relative
@@ -771,7 +780,7 @@ class function TNodeInterpolator.LoadAnimFramesToKeyNodes(const URL: string): TA
     Children: TXMLElementIterator;
     I: Integer;
     FrameTime: Single;
-    FrameURL: string;
+    FrameURL, MimeType: string;
     NewNode: TX3DRootNode;
     Attr: TDOMAttr;
     FrameBoxCenter, FrameBoxSize: TVector3;
@@ -836,10 +845,20 @@ class function TNodeInterpolator.LoadAnimFramesToKeyNodes(const URL: string): TA
             { Make FrameURL absolute, treating it as relative vs
               AbsoluteBaseUrl }
             FrameURL := CombineURI(AbsoluteBaseUrl, FrameURL);
-            NewNode := Load3D(FrameURL);
+            NewNode := LoadNode(FrameURL);
           end else
           begin
-            NewNode := LoadX3DXml(FrameElement.ChildElement('X3D'), AbsoluteBaseUrl);
+            MimeType := FrameElement.AttributeStringDef('mime_type', '');
+            case MimeType of
+              '', 'model/x3d+xml':
+                NewNode := LoadX3DXml(FrameElement.ChildElement('X3D'), AbsoluteBaseUrl);
+              'model/gltf+json':
+                NewNode := LoadGLTFFromString(FrameElement.TextData, AbsoluteBaseUrl);
+              else
+                raise Exception.CreateFmt('Cannot use mime_type "%s" for a frame in castle-anim-frames', [
+                  MimeType
+                ]);
+            end;
           end;
 
           if FrameElement.AttributeVector3('bounding_box_center', FrameBoxCenter) and
@@ -974,7 +993,7 @@ var
     Route: TX3DRoute;
     Group: TGroupNode;
   begin
-    AnimationX3DName := ToX3DName(BakedAnimation.Name);
+    AnimationX3DName := BakedAnimation.Name;
 
     Group := TGroupNode.Create(
       AnimationX3DName + '_Group', BaseUrl);
@@ -1012,10 +1031,11 @@ var
     Switch := TSwitchNode.Create(
       AnimationX3DName + '_Switch_ChooseAnimationFrame', BaseUrl);
     for I := 0 to NodesCount - 1 do
-      { Add using FdChildren.Add, not AddChildren, because duplicates
-        are possible below, in case two animation frames are exactly equal.
-        See e.g. evil squirrel in https://github.com/castle-engine/wyrd-forest }
-      Switch.FdChildren.Add(WrapRootNode(BakedAnimation.Nodes[I] as TX3DRootNode));
+      { Note that duplicates are possible below,
+        in case two animation frames are exactly equal.
+        See e.g. evil squirrel in https://github.com/castle-engine/wyrd-forest .
+        Fortunately AddChildren by default has AllowDuplicates. }
+      Switch.AddChildren(WrapRootNode(BakedAnimation.Nodes[I] as TX3DRootNode));
     Assert(Switch.FdChildren.Count = NodesCount);
 
     { we set whichChoice to 0 to see something before you run the animation }
@@ -1027,6 +1047,15 @@ var
       Also, place it in the active graph part (outside SwitchChooseAnimation)
       to be always listed in Scene.AnimationsList. }
     TimeSensor := TTimeSensorNode.Create(AnimationX3DName, BaseUrl);
+    { TODO: castle-anim-frames doesn't work nicely with DetectAffectedFields,
+      probably because SwitchChooseAnimation.FdWhichChoice.EventIn
+      is not detected as "affected field".
+      Testcase:
+      - examples/animations/resource_animations/ , on knight we have blinking
+      - demo-models/bump_mapping/lizardman , on "reset" in "walk" animation
+        goes to the 1st "walk" frame instead of "reset" pose.
+      For now disable this mechanism for castle-anim-frames. }
+    TimeSensor.DetectAffectedFields := false;
     if BakedAnimation.Backwards then
       TimeSensor.CycleInterval := 2 * BakedAnimation.Duration
     else

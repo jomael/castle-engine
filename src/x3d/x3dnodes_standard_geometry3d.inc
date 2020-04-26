@@ -19,7 +19,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdSize: TSFVec3f;
     public property FdSize: TSFVec3f read FFdSize;
@@ -59,7 +58,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdBottom: TSFBool;
     public property FdBottom: TSFBool read FFdBottom;
@@ -112,7 +110,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdBottom: TSFBool;
     public property FdBottom: TSFBool read FFdBottom;
@@ -170,7 +167,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     { Event in } { }
     strict private FEventSet_height: TMFFloatEvent;
@@ -232,6 +228,7 @@
     function InternalFogCoord: TMFFloat; override;
     function AttribField: TMFNode; override;
     function SolidField: TSFBool; override;
+    function FieldSetByEvent(const Event: TX3DEvent): TX3DField; override;
 
     function Proxy(var State: TX3DGraphTraverseState;
       const OverTriangulate: boolean): TAbstractGeometryNode; override;
@@ -263,7 +260,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     { Event in } { }
     strict private FEventSet_crossSection: TMFVec2fEvent;
@@ -361,8 +357,8 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
+    {$ifndef CASTLE_SLIM_NODES}
     { Event in } { }
     strict private FEventSet_colorIndex: TMFInt32Event;
     public property EventSet_colorIndex: TMFInt32Event read FEventSet_colorIndex;
@@ -378,6 +374,7 @@
     { Event in } { }
     strict private FEventSet_texCoordIndex: TMFInt32Event;
     public property EventSet_texCoordIndex: TMFInt32Event read FEventSet_texCoordIndex;
+    {$endif}
 
     strict private FFdColorIndex: TMFInt32;
     public property FdColorIndex: TMFInt32 read FFdColorIndex;
@@ -419,7 +416,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdRadius: TSFFloat;
     public property FdRadius: TSFFloat read FFdRadius;
@@ -491,13 +487,6 @@ begin
   Result := 'Box';
 end;
 
-class function TBoxNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
 function TBoxNode.TexCoordField: TSFNode;
 begin
   Result := FdTexCoord;
@@ -566,13 +555,6 @@ end;
 class function TConeNode.ClassX3DType: string;
 begin
   Result := 'Cone';
-end;
-
-class function TConeNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 class function TConeNode.ForVRMLVersion(const Version: TX3DVersion): boolean;
@@ -670,13 +652,6 @@ end;
 class function TCylinderNode.ClassX3DType: string;
 begin
   Result := 'Cylinder';
-end;
-
-class function TCylinderNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 class function TCylinderNode.ForVRMLVersion(const Version: TX3DVersion): boolean;
@@ -809,13 +784,6 @@ begin
   Result := 'ElevationGrid';
 end;
 
-class function TElevationGridNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
 function TElevationGridNode.IsNotEmpty: boolean;
 begin
   Result :=
@@ -850,13 +818,23 @@ end;
 procedure TElevationGridNode.EventSet_HeightReceive(
   Event: TX3DEvent; Value: TX3DField; const Time: TX3DTime);
 begin
-  FdHeight.Assign(Value);
-  FdHeight.Changed;
+  FdHeight.Send(Value);
 end;
 
 function TElevationGridNode.SolidField: TSFBool;
 begin
   Result := FdSolid;
+end;
+
+function TElevationGridNode.FieldSetByEvent(const Event: TX3DEvent): TX3DField;
+begin
+  { Thanks to this method, animations that modify ElevationGrid
+    by sending set_height event are correctly accounted
+    in TCastleSceneCore "affected fields", thus e.g. ResetAnimationState
+    correctly resets them. }
+  if Event = EventSet_height then
+    Exit(FdHeight);
+  Result := inherited;
 end;
 
 { TExtrusionNode ------------------------------------------------------------- }
@@ -935,13 +913,6 @@ end;
 class function TExtrusionNode.ClassX3DType: string;
 begin
   Result := 'Extrusion';
-end;
-
-class function TExtrusionNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 function TExtrusionNode.CrossSection3D(Index: integer): TVector3;
@@ -1306,6 +1277,7 @@ procedure TIndexedFaceSetNode.CreateNode;
 begin
   inherited;
 
+  {$ifndef CASTLE_SLIM_NODES}
   FEventSet_colorIndex := TMFInt32Event.Create(Self, 'set_colorIndex', true);
   AddEvent(FEventSet_colorIndex);
   Eventset_colorIndex.AddNotification({$ifdef CASTLE_OBJFPC}@{$endif} EventSet_colorIndexReceive);
@@ -1321,6 +1293,7 @@ begin
   FEventSet_texCoordIndex := TMFInt32Event.Create(Self, 'set_texCoordIndex', true);
   AddEvent(FEventSet_texCoordIndex);
   Eventset_texCoordIndex.AddNotification({$ifdef CASTLE_OBJFPC}@{$endif} EventSet_texCoordIndexReceive);
+  {$endif}
 
   FFdColorIndex := TMFInt32.Create(Self, false, 'colorIndex', []);
    FdColorIndex.SaveToStreamLineUptoNegative := true;
@@ -1360,13 +1333,6 @@ end;
 class function TIndexedFaceSetNode.ClassX3DType: string;
 begin
   Result := 'IndexedFaceSet';
-end;
-
-class function TIndexedFaceSetNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 class function TIndexedFaceSetNode.ForVRMLVersion(const Version: TX3DVersion): boolean;
@@ -1441,13 +1407,6 @@ end;
 class function TSphereNode.ClassX3DType: string;
 begin
   Result := 'Sphere';
-end;
-
-class function TSphereNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 class function TSphereNode.ForVRMLVersion(const Version: TX3DVersion): boolean;

@@ -96,6 +96,7 @@ type
     EXT_texture_filter_anisotropic: boolean;
     NV_multisample_filter_hint: boolean;
     ARB_occlusion_query: boolean;
+    EXT_framebuffer_blit: Boolean;
     {$ifndef OpenGLES}
     EXT_fog_coord: boolean;
     ARB_window_pos: boolean;
@@ -169,7 +170,7 @@ type
       Value = 1 means that no multi-sampling is initialized.
       Values > 1 mean that you have multi-sampling, with given number of samples
       per pixel.
-      Contrast this with TCastleWindowCustom.MultiSampling or TOpenGLControl.MultiSampling,
+      Contrast this with TCastleWindowBase.MultiSampling or TOpenGLControl.MultiSampling,
       that say @italic(how many samples you wanted to get). }
     CurrentMultiSampling: Cardinal;
 
@@ -234,11 +235,11 @@ type
       @unorderedList(
         @item(This makes Gouraud-shaded shapes rendered using OpenGL
           fixed-function pipeline on desktops.)
-        @item(It also makes TGLImage.Draw, DrawPrimitive2D (and consequently
+        @item(It also makes TDrawableImage.Draw, DrawPrimitive2D (and consequently
           most of the 2D user-interface) rendered using OpenGL fixed-function pipeline
           on desktops.)
         @item(It also allows you to use fixed-function pipeline calls in the
-          @link(TCastleWindowCustom.OnRender) callback, @link(TUIControl.Render)
+          @link(TCastleWindowBase.OnRender) callback, @link(TCastleUserInterface.Render)
           override and related places.)
         @item(It also allows some deprecated rendering features like WindowPos
           to continue to work.)
@@ -254,6 +255,8 @@ type
     { Total and current memory available.
       Call Memory.Refresh whenever needed. }
     Memory: TGLMemoryInfo;
+
+    MaxViewportDimensions: TVector2Integer;
 
     { Maximum number of texture units you can safely always use.
       If EnableFixedFunction, this is MaxTextureUnitsFixedFunction,
@@ -338,6 +341,16 @@ end;
 {$endif}
 
 constructor TGLFeatures.Create;
+
+  function GetVector2Integer(const Param: TGLenum): TVector2Integer;
+  var
+    V: packed array [0..1] of TGLInt;
+  begin
+    glGetIntegerv(Param, @V);
+    Result.Data[0] := V[0];
+    Result.Data[1] := V[1];
+  end;
+
 var
   SupportedExtensions: string;
 begin
@@ -417,16 +430,14 @@ begin
 
   { calculate MaxTexture3DSize, eventually correct Texture3D if buggy }
   case Texture3D of
-    {$ifndef OpenGLES}
-    gsExtension: MaxTexture3DSize := glGetInteger(GL_MAX_3D_TEXTURE_SIZE_EXT);
-    gsStandard : MaxTexture3DSize := glGetInteger(GL_MAX_3D_TEXTURE_SIZE);
-    {$endif}
+    gsExtension: MaxTexture3DSize := {$ifndef OpenGLES} glGetInteger(GL_MAX_3D_TEXTURE_SIZE_EXT) {$else} 0 {$endif};
+    gsStandard : MaxTexture3DSize := {$ifndef OpenGLES} glGetInteger(GL_MAX_3D_TEXTURE_SIZE) {$else} 0 {$endif};
     gsNone     : MaxTexture3DSize := 0;
   end;
   if (MaxTexture3DSize = 0) and (Texture3D <> gsNone) then
   begin
     Texture3D := gsNone;
-    if Log then WritelnLog('OpenGL', 'Buggy OpenGL 3D texture support: reported as supported, but GL_MAX_3D_TEXTURE_SIZE[_EXT] is zero. (Bug may be found on Mesa 7.0.4.)');
+    WritelnLog('OpenGL', 'Buggy OpenGL 3D texture support: reported as supported, but GL_MAX_3D_TEXTURE_SIZE[_EXT] is zero. (Bug may be found on Mesa 7.0.4.)');
   end;
 
   // TODO: there is also such extension for OpenGL ES
@@ -461,14 +472,12 @@ begin
     if MaxRenderbufferSize = 0 then
     begin
       Framebuffer := gsNone;
-      if Log then WritelnLog('OpenGL', 'Buggy OpenGL Framebuffer: reported as supported, but GL_MAX_RENDERBUFFER_SIZE[_EXT] is zero. (Bug may be found on Mesa 7.0.4.)');
+      WritelnLog('OpenGL', 'Buggy OpenGL Framebuffer: reported as supported, but GL_MAX_RENDERBUFFER_SIZE[_EXT] is zero. (Bug may be found on Mesa 7.0.4.)');
     end;
   end else
     MaxRenderbufferSize := 0;
 
-  { TODO: this should be completely configurable in shader pipeline.
-    Make it configurable at Attributes.MaxClipPlanes? }
-  MaxClipPlanes := {$ifdef OpenGLES} 8 {$else} glGetInteger(GL_MAX_CLIP_PLANES) {$endif};
+  EXT_framebuffer_blit := Load_GL_EXT_framebuffer_blit;
 
   { calculate UseMultiTexturing: check extensions required for multitexturing.
 
@@ -557,6 +566,38 @@ begin
 
     if glext_ExtensionSupported('GL_OES_compressed_ETC1_RGB8_texture', SupportedExtensions) then
       TextureCompression := TextureCompression + [tcETC1];
+
+    if glext_ExtensionSupported('GL_KHR_texture_compression_astc_ldr', SupportedExtensions) or
+       glext_ExtensionSupported('GL_KHR_texture_compression_astc_hdr', SupportedExtensions) then
+      TextureCompression := TextureCompression + [
+        tcASTC_4x4_RGBA,
+        tcASTC_5x4_RGBA,
+        tcASTC_5x5_RGBA,
+        tcASTC_6x5_RGBA,
+        tcASTC_6x6_RGBA,
+        tcASTC_8x5_RGBA,
+        tcASTC_8x6_RGBA,
+        tcASTC_8x8_RGBA,
+        tcASTC_10x5_RGBA,
+        tcASTC_10x6_RGBA,
+        tcASTC_10x8_RGBA,
+        tcASTC_10x10_RGBA,
+        tcASTC_12x10_RGBA,
+        tcASTC_12x12_RGBA,
+        tcASTC_4x4_SRGB8_ALPHA8,
+        tcASTC_5x4_SRGB8_ALPHA8,
+        tcASTC_5x5_SRGB8_ALPHA8,
+        tcASTC_6x5_SRGB8_ALPHA8,
+        tcASTC_6x6_SRGB8_ALPHA8,
+        tcASTC_8x5_SRGB8_ALPHA8,
+        tcASTC_8x6_SRGB8_ALPHA8,
+        tcASTC_8x8_SRGB8_ALPHA8,
+        tcASTC_10x5_SRGB8_ALPHA8,
+        tcASTC_10x6_SRGB8_ALPHA8,
+        tcASTC_10x8_SRGB8_ALPHA8,
+        tcASTC_10x10_SRGB8_ALPHA8,
+        tcASTC_12x10_SRGB8_ALPHA8,
+        tcASTC_12x12_SRGB8_ALPHA8 ];
   end;
 
   SupportedTextureCompressionKnown := true;
@@ -603,6 +644,29 @@ begin
     (not VertexBufferObject) or
     GLVersion.BuggyPureShaderPipeline
     {$endif};
+
+  { Calculate MaxClipPlanes.
+    The logic follows various approaches to clip planes in TShader.EnableClipPlane.
+    TODO: If you later switch EnableFixedFunction to true,
+    our code doesn't recalculate this limit now. }
+  {$ifndef OpenGLES}
+  if EnableFixedFunction or (not Version_3_0) then
+    MaxClipPlanes := glGetInteger(GL_MAX_CLIP_PLANES)
+  else
+    MaxClipPlanes := glGetInteger(GL_MAX_CLIP_DISTANCES);
+  {$else}
+  { Any value is in theory correct for OpenGLES.
+    The only limit is number of varying variables we can pass from vertex
+    to fragment shader, and fragment code speed.
+    With OpenGLES 2, the clipping requires
+    passing data to the fragment shader, and discarding fragments there.
+
+    We set 8, as it seems reasonable, and is the minimal guaranteed value
+    of GL_MAX_CLIP_DISTANCES. }
+  MaxClipPlanes := 8;
+  {$endif}
+
+  MaxViewportDimensions := GetVector2Integer(GL_MAX_VIEWPORT_DIMS);
 
   // set GLFeatures singleton, TGLMemoryInfo.Refresh depends on it
   GLFeatures := Self;

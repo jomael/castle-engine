@@ -1,3 +1,4 @@
+{%MainUnit castlecontrols.pas}
 {
   Copyright 2010-2018 Michalis Kamburelis.
 
@@ -34,162 +35,248 @@
     or straight TCastleImageControl.Image.
 
     We automatically use alpha test or alpha blending based
-    on loaded image alpha channel (see TGLImageCore.Alpha).
+    on loaded image alpha channel (see @link(TDrawableImage.Alpha)).
     You can influence this by @link(AlphaChannel) property. }
-  TCastleImageControl = class(TUIControl)
+  TCastleImageControl = class(TCastleUserInterface)
   strict private
-    FURL: string;
-    FImage: TCastleImage;
-    FGLImage: TGLImage;
-    FAlphaChannel: TAutoAlphaChannel;
     FStretch: boolean;
     FProportionalScaling: TProportionalScaling;
-    FFullSize: boolean;
-    FWidth: Cardinal;
-    FHeight: Cardinal;
-    FColor: TCastleColor;
-    FCorners: TVector4Integer;
-    FOwnsImage: boolean;
-    FSmoothScaling: boolean;
-    FCenterX: Single;
-    FCenterY: Single;
-    FRotation: Single;
-    FClip: boolean;
-    FClipLine: TVector3;
-    procedure SetCenterX(const AValue: Single);
-    procedure SetCenterY(const AValue: Single);
-    procedure SetRotation(const AValue: Single);
-    procedure SetURL(const Value: string);
-    procedure SetImage(const Value: TCastleImage);
+    FDetectScaleFromUrl: Boolean;
+    FContent: TCastleImagePersistent;
+
+    { Properties simply synchronized with the same properties of FContent. }
+    function GetURL: String;
+    function GetDrawableImage: TDrawableImage;
+    function GetOwnsDrawableImage: Boolean;
+    function GetImage: TEncodedImage;
+    function GetOwnsImage: Boolean;
+    function GetRotation: Single;
+    function GetRotationCenter: TVector2;
+    function GetAlphaChannel: TAutoAlphaChannel;
+    function GetColor: TCastleColor;
+    function GetClip: boolean;
+    function GetClipLine: TVector3;
+    function GetCustomShader: TGLSLProgram;
+    function GetFlipVertical: Boolean;
+    function GetFlipHorizontal: Boolean;
+    function GetSmoothScaling: Boolean;
+    function GetCache: Boolean;
+    function GetProtectedSides: TBorder;
+    procedure SetURL(const Value: String);
+    procedure SetDrawableImage(const Value: TDrawableImage);
+    procedure SetOwnsDrawableImage(const Value: Boolean);
+    procedure SetImage(const Value: TEncodedImage);
+    procedure SetOwnsImage(const Value: Boolean);
+    procedure SetRotation(const Value: Single);
+    procedure SetRotationCenter(const Value: TVector2);
     procedure SetAlphaChannel(const Value: TAutoAlphaChannel);
+    procedure SetColor(const Value: TCastleColor);
+    procedure SetClip(const Value: boolean);
+    procedure SetClipLine(const Value: TVector3);
+    procedure SetCustomShader(const Value: TGLSLProgram);
+    procedure SetFlipVertical(const Value: Boolean);
+    procedure SetFlipHorizontal(const Value: Boolean);
+    procedure SetSmoothScaling(const Value: boolean);
+    procedure SetCache(const Value: boolean);
+
+    { Properties maintained for backward compatibility. }
+    function GetCenterX: Single;
+    function GetCenterY: Single;
+    procedure SetCenterX(const Value: Single);
+    procedure SetCenterY(const Value: Single);
     function GetBlending: boolean;
     procedure SetBlending(const Value: boolean);
+    function GetCorners: TVector4Integer;
+    procedure SetCorners(const Value: TVector4Integer);
+
     procedure SetStretch(const Value: boolean);
-    procedure SetWidth(const Value: Cardinal);
-    procedure SetHeight(const Value: Cardinal);
-    procedure SetFullSize(const Value: boolean);
     procedure SetProportionalScaling(const Value: TProportionalScaling);
     function GetProportional: boolean;
     procedure SetProportional(const Value: boolean);
-    procedure SetColor(const Value: TCastleColor);
-    procedure SetSmoothScaling(const Value: boolean);
-    procedure SetClip(const Value: boolean);
-    procedure SetClipLine(const Value: TVector3);
+    procedure SetDetectScaleFromUrl(const Value: Boolean);
+
+    procedure ContentChanged(Sender: TObject);
+  protected
+    procedure PreferredSize(var PreferredWidth, PreferredHeight: Single); override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     procedure Render; override;
     procedure GLContextOpen; override;
-    procedure GLContextClose; override;
-    function Rect: TRectangle; override;
-    procedure ImageChanged;
+    procedure EditorAllowResize(
+      out ResizeWidth, ResizeHeight: Boolean; out Reason: String); override;
+    function PropertySection(const PropertyName: String): TPropertySection; override;
 
-    { Image displayed, or @nil if none. You can set it by setting @link(URL),
-      or you can set this property directly if you loaded/created the image contents
-      yourself.
+    { Image contents, or @nil if none. You can set it by setting @link(URL),
+      or by setting this property directly,
+      or by setting @link(DrawableImage).
 
-      Note that by default the TCastleImage instance assigned here is owned
+      Note that by default the TEncodedImage instance assigned here is owned
       by this component (see @link(OwnsImage)).
-      So if you set this property to your custom TCastleImage instance you should
+      So if you set this property to your custom TEncodedImage instance you should
       leave memory management of this instance to this component.
-      You can either create a copy by TCastleImage.MakeCopy
+      You can either create a copy by TEncodedImage.MakeCopy
       if you want to give here only a copy, or you can change @link(OwnsImage)
       to @false.
 
       It is allowed to modify the contents or even size of this image.
-      Just make sure to call ImageChanged after the modifications are done
-      to update the actual rendered image.
-      The control size will be updated immediately (taking into account current
-      @link(Stretch) and related properties values). }
-    property Image: TCastleImage read FImage write SetImage;
+      Just make sure to call @link(ImageChanged) after the modifications
+      are done to update the rendered image (and possibly
+      the UI control size, e.g. in case TCastleImageControl
+      uses this TCastleImagePersistent, and TCastleImageControl.Stretch=false).
 
-    { Image used to draw this on GPU.
-      In most circumstances, you should deal with @link(Image) instead
-      (changing it will automatically update @name).
-      But in special cases it may make sense to use this,
-      e.g. for fast image-to-image drawing using @link(TGLImage.DrawFrom).
-
-      This is non-nil only when OpenGL context is initialized,
-      and @link(Image) is assigned. }
-    property DrawableImage: TGLImage read FGLImage;
+      @seealso TCastleImagePersistent.Image }
+    property Image: TEncodedImage read GetImage write SetImage;
 
     { Whether the memory management of assigned @link(Image) is automatic.
-      See @link(Image) documentation for details. }
-    property OwnsImage: boolean read FOwnsImage write FOwnsImage default true;
+      See @link(Image) documentation for details.
+
+      Note that setting @link(URL) changes @link(Image),
+      and changes OwnsImage unconditionally to @true.
+
+      Note that setting @link(DrawableImage) changes @link(Image) too,
+      and changes OwnsImage to the value present in @link(TDrawableImage.OwnsImage).
+
+      @seealso TCastleImagePersistent.OwnsImage }
+    property OwnsImage: boolean read GetOwnsImage write SetOwnsImage default true;
+
+    { Image used for drawing. Never @nil.
+      Always @link(TDrawableImage.Image) equals our @link(Image).
+
+      Usually you do not want to change this property.
+      You can change @link(URL), or @link(Image), and the drawable
+      image will reflect this.
+      But there are good use-cases to change the @link(DrawableImage)
+      directly: e.g. you can use fast image-to-image
+      drawing using @link(TDrawableImage.DrawFrom).
+      Or you can set a new instance of TDrawableImage here.
+      Be sure to adjust @link(OwnsDrawableImage) as needed.
+
+      Note that when OpenGL(ES) context is lost and recreated (which can
+      happen at any moment on mobile devices), the contents of this are
+      reinitialized from @link(Image).
+
+      @seealso TCastleImagePersistent.DrawableImage }
+    property DrawableImage: TDrawableImage read GetDrawableImage write SetDrawableImage;
+
+    { Whether we should automatically free the @link(DrawableImage) instance.
+      Note that this is restored to @true when we need to recreate the
+      TDrawableImage internally, e.g. when @link(Image) instance changed
+      (when even size changed, we have to recreate TDrawableImage).
+
+      @seealso TCastleImagePersistent.OwnsDrawableImage }
+    property OwnsDrawableImage: boolean read GetOwnsDrawableImage write SetOwnsDrawableImage default true;
+
+    { If you modified the @link(Image) contents
+      (colors, or maybe even image size) you need to call this.
+
+      @seealso TCastleImagePersistent.ImageChanged }
+    procedure ImageChanged;
 
     { Color tint of the image. This simply multiplies the image RGBA components,
-      just like @link(TGLImageCore.Color). By default this is opaque white,
-      which means that image colors are unchanged. }
-    property Color: TCastleColor read FColor write SetColor;
+      just like @link(TDrawableImage.Color). By default this is opaque white,
+      which means that image colors are unchanged.
 
-    { Corners of the image that are not stretched even
-      in case @link(Stretch) is used.
-      See @link(TGLImageCore.Draw3x3) for the details how drawing image
-      with borders work. }
-    property Corners: TVector4Integer read FCorners write FCorners;
+      @seealso TCastleImagePersistent.Color }
+    property Color: TCastleColor read GetColor write SetColor;
+
+    { Corners and edges of the image that are not stretched even
+      when @link(Stretch) is used.
+      See @link(TDrawableImage.Draw3x3) for the details how such drawing works. }
+    property Corners: TVector4Integer read GetCorners write SetCorners;
+      deprecated 'use ProtectedSides';
 
     { X coordinate of the center of rotation. Value from 0 to 1. Default value 0.5. }
-    property CenterX: Single read FCenterX write SetCenterX default 0.5;
+    property CenterX: Single read GetCenterX write SetCenterX default 0.5;
+      deprecated 'use RotationCenter';
 
     { Y coordinate of the center of rotation. Value from 0 to 1. Default value 0.5. }
-    property CenterY: Single read FCenterY write SetCenterY default 0.5;
+    property CenterY: Single read GetCenterY write SetCenterY default 0.5;
+      deprecated 'use RotationCenter';
 
-    { Rotation in radians. Default value 0. }
-    property Rotation: Single read FRotation write SetRotation default 0;
+    { Center of rotation.
+      Expressed as a fraction within the drawn ScreenRectangle,
+      (0,0) means bottom-left corner, (1,1) means top-right corner.
+      Default (0.5,0.5).
 
-    { Clip the image by an arbitrary 2D line defined in @link(ClipLine). }
-    property Clip: boolean read FClip write SetClip;
+      @seealso TCastleImagePersistent.RotationCenter }
+    property RotationCenter: TVector2 read GetRotationCenter write SetRotationCenter;
 
     { If @link(Clip), this is the line equation used to determine whether
       we clip the given pixel. Given a line (A, B, C) and pixel (x, y),
       the pixel is clipped (rejected) if @code(A * x + B * y + C < 0).
 
-      The equation is calculated in the final scaled screen coordinates
-      (not in the local, unscaled pixels). Adjust it to match the ScreenRect
-      if necessary, to make it work with UI scaling. }
-    property ClipLine: TVector3 read FClipLine write SetClipLine;
+      The equation is calculated in the coordinates in which image
+      X, Y spans from (0, 0) (bottom-left) to (1, 1) (top-right).
+      For example ClipLine = (1, 0, -0.5) means that we reject pixels
+      where @code(1 * x + 0 * y - 0.5 < 0). In other words,
+      we reject pixels where @code(x < 0.5), so we reject the left half of the image.
+
+      @seealso TCastleImagePersistent.ClipLine }
+    property ClipLine: TVector3 read GetClipLine write SetClipLine;
+
+    { Custom GLSL shading code.
+      See TDrawableImage.CustomShader for explanation.
+
+      @seealso TCastleImagePersistent.CustomShader }
+    property CustomShader: TGLSLProgram read GetCustomShader write SetCustomShader;
+
+    property Blending: boolean read GetBlending write SetBlending stored false;
+      deprecated 'use AlphaChannel';
+    property Proportional: boolean read GetProportional write SetProportional stored false default false;
+      deprecated 'use ProportionalScaling';
+    property FileName: string read GetURL write SetURL stored false;
+      deprecated 'use URL';
   published
-    { URL of the image. Setting this also sets @link(Image).
-      Set this to '' to clear the image. }
-    property URL: string read FURL write SetURL;
-    { Deprecated name for @link(URL). }
-    property FileName: string read FURL write SetURL; deprecated;
+    { Image contents to display. }
+    property Content: TCastleImagePersistent read FContent;
+
+    { URL of the image.
+      Set this to load a new image, you can set to '' to clear the image.
+
+      @seealso TCastleImagePersistent.URL }
+    property URL: string read GetURL write SetURL stored false;
+
     { How to treat alpha channel of the assigned image.
       By default, this is acAuto, which means that image contents
       together with current @link(Color) determine how
       the alpha of image is treated (opaque, alpha test, alpha blending).
-      Set this to force specific treatment. }
+      Set this to force specific treatment.
+
+      @seealso TCastleImagePersistent.AlphaChannel }
     property AlphaChannel: TAutoAlphaChannel
-      read FAlphaChannel write SetAlphaChannel default acAuto;
-    { Deprecated, use more flexible AlphaChannel instead. }
-    property Blending: boolean read GetBlending write SetBlending stored false; deprecated 'use AlphaChannel';
+      read GetAlphaChannel write SetAlphaChannel stored false default acAuto;
 
     { Is the image scaling mode smooth (bilinear filtering)
       or not (nearest-pixel filtering).
-      See @link(TGLImageCore.SmoothScaling). }
+      See @link(TDrawableImage.SmoothScaling).
+
+      @seealso TCastleImagePersistent.SmoothScaling }
     property SmoothScaling: boolean
-      read FSmoothScaling write SetSmoothScaling default true;
+      read GetSmoothScaling write SetSmoothScaling stored false default true;
 
-    { Size of the image control.
-
-      If Stretch = @false, then values you set for Width, Height, FullSize,
-      ProportionalScaling properties do not matter (they are still remembered though,
-      so you can set properties in any order).
-      The displayed size (you can check it through @link(Rect) function)
-      always corresponds to the underlying image size.
-      The Left and Bottom properties work as usual, they allow you to move the control.
-
-      If Stretch = @true, then the image will be stretched to fill the requested area.
+    { How does the loaded image size affect the size of the image control.
 
       @unorderedList(
-        @item(If Stretch = @true and FullSize = @true then values of Width,
-          Height, Left, Bottom do not matter:
-          image always fills the whole parent
-          (@link(Rect) corresponds to the parent area).)
+        @item(
+          When @link(FullSize) or @link(AutoSizeToChildren) is @true,
+          then the value of @link(Stretch), and loaded image size, are ignored.
+          When @link(AutoSizeToChildren),
+          the image is always stretched to surround the children.
+          When @link(FullSize),
+          the image is always stretched to fill the parent.
 
-        @item(If Stretch = @true and FullSize = @false then the property
-          ProportionalScaling determines how the the image will be adjusted
-          to fit the requested Width and Height.
+          Otherwise:
+        )
+
+        @item(If Stretch = @false (default), then
+          the displayed size corresponds to the underlying image size.)
+
+        @item(If Stretch = @true, the image will be stretched to fill
+          the requested area. The property
+          @link(ProportionalScaling) determines how the image will
+          be adjusted to fit the requested size
+          (by @link(Width), @link(WidthFraction), @link(Height), @link(HeightFraction)).
 
           @definitionList(
             @itemLabel psNone
@@ -218,254 +305,225 @@
         )
       )
 
-      Note that you can always look at @link(Rect) value to know
-      the current calculated size and position of the image control on screen.
-
       @groupBegin }
     property Stretch: boolean read FStretch write SetStretch default false;
-    property Width: Cardinal read FWidth write SetWidth default 0;
-    property Height: Cardinal read FHeight write SetHeight default 0;
-    property FullSize: boolean read FFullSize write SetFullSize default false;
     property ProportionalScaling: TProportionalScaling
       read FProportionalScaling write SetProportionalScaling default psNone;
     { @groupEnd }
 
-    property Proportional: boolean read GetProportional write SetProportional
-      stored false default false; deprecated 'use ProportionalScaling';
+    { If @true, the image is loaded and freed using a cache.
+      This can save memory and loading time a lot, if you reuse the same
+      URL in many TCastleImageControl instances.
+
+      @seealso TCastleImagePersistent.Cache }
+    property Cache: boolean read GetCache write SetCache stored false default true;
+
+    { Display image horizontally flipped.
+      @seealso TCastleImagePersistent.FlipHorizontal }
+    property FlipHorizontal: Boolean read GetFlipHorizontal write SetFlipHorizontal
+      stored false default false;
+
+    { Display image vertically flipped.
+      @seealso TCastleImagePersistent.FlipVertical }
+    property FlipVertical: Boolean read GetFlipVertical write SetFlipVertical
+      stored false default false;
+
+    { Corners and edges of the image that are protected from scaling distortion
+      when @link(Stretch) is used.
+      We use the 9-slicing algorithm,
+      described at @link(TDrawableImage.Draw3x3)
+      and https://en.wikipedia.org/wiki/9-slice_scaling to scale the image.
+
+      @seealso TCastleImagePersistent.ProtectedSides }
+    property ProtectedSides: TBorder read GetProtectedSides stored false;
+
+    { Set this to auto-detect that image is scaled compared to it's desired size.
+      This detects URL endings like 'xxx@2x.png', and we will automatically adjust
+      to it (the size determined by AutoSize will be actually 2x smaller than
+      the PNG size).
+      Preparing images at a 2x or 4x larger size than "desired" is a useful trick
+      when using UI scaling, when you want the image to look good at various scales. }
+    property DetectScaleFromUrl: Boolean
+      read FDetectScaleFromUrl write SetDetectScaleFromUrl default false;
+
+    { Rotation in radians. Default value 0.
+      @seealso TCastleImagePersistent.Rotation }
+    property Rotation: Single read GetRotation write SetRotation stored false default 0;
+
+    { Clip the image by an arbitrary 2D line defined in @link(ClipLine).
+      @seealso TCastleImagePersistent.Clip }
+    property Clip: boolean read GetClip write SetClip stored false default false;
+
+  {$define read_interface_class}
+  {$I auto_generated_persistent_vectors/tcastleimagecontrol_persistent_vectors.inc}
+  {$undef read_interface_class}
   end;
 
 {$endif read_interface}
 
 {$ifdef read_implementation}
 
-{ TCastleImageControl ---------------------------------------------------------------- }
+{ TCastleImageControl -------------------------------------------------------- }
 
 constructor TCastleImageControl.Create(AOwner: TComponent);
 begin
   inherited;
-  FColor := White;
-  FOwnsImage := true;
-  FSmoothScaling := true;
-  FCenterX := 0.5;
-  FCenterY := 0.5;
-  FRotation := 0;
+  FContent := TCastleImagePersistent.Create;
+  FContent.OnChange := @ContentChanged;
+
+  {$define read_implementation_constructor}
+  {$I auto_generated_persistent_vectors/tcastleimagecontrol_persistent_vectors.inc}
+  {$undef read_implementation_constructor}
 end;
 
 destructor TCastleImageControl.Destroy;
 begin
-  if OwnsImage then
-    FreeAndNil(FImage) else
-    FImage := nil;
-  FreeAndNil(FGLImage);
+  FreeAndNil(FContent);
+
+  {$define read_implementation_destructor}
+  {$I auto_generated_persistent_vectors/tcastleimagecontrol_persistent_vectors.inc}
+  {$undef read_implementation_destructor}
   inherited;
+end;
+
+function TCastleImageControl.GetProtectedSides: TBorder;
+begin
+  Result := FContent.ProtectedSides;
+end;
+
+function TCastleImageControl.GetSmoothScaling: boolean;
+begin
+  Result := FContent.SmoothScaling;
 end;
 
 procedure TCastleImageControl.SetSmoothScaling(const Value: boolean);
 begin
-  if FSmoothScaling <> Value then
-  begin
-    FSmoothScaling := Value;
-    if FGLImage <> nil then
-    begin
-      FGLImage.SmoothScaling := Value;
-      VisibleChange;
-    end;
-  end;
+  FContent.SmoothScaling := Value;
+end;
+
+function TCastleImageControl.GetClip: boolean;
+begin
+  Result := FContent.Clip;
 end;
 
 procedure TCastleImageControl.SetClip(const Value: boolean);
 begin
-  if FClip <> Value then
-  begin
-    FClip := Value;
-    if FGLImage <> nil then
-    begin
-      FGLImage.Clip := Value;
-      VisibleChange;
-    end;
-  end;
+  FContent.Clip := Value;
+end;
+
+function TCastleImageControl.GetClipLine: TVector3;
+begin
+  Result := FContent.ClipLine;
 end;
 
 procedure TCastleImageControl.SetClipLine(const Value: TVector3);
 begin
-  if not TVector3.PerfectlyEquals(FClipLine, Value) then
-  begin
-    FClipLine := Value;
-    if FGLImage <> nil then
-    begin
-      FGLImage.ClipLine := Value;
-      VisibleChange;
-    end;
-  end;
+  FContent.ClipLine := Value;
 end;
 
-procedure TCastleImageControl.SetURL(const Value: string);
+function TCastleImageControl.GetRotation: Single;
 begin
-  if Value <> '' then
-    Image := LoadImage(Value) else
-    Image := nil;
-
-  { only once new Image is successfully loaded, change property value.
-    If LoadImage raised exception, URL will remain unchanged. }
-  FURL := Value;
+  Result := FContent.Rotation;
 end;
 
-procedure TCastleImageControl.SetCenterX(const AValue: Single);
+procedure TCastleImageControl.SetRotation(const Value: Single);
 begin
-  if FCenterX <> AValue then
-  begin
-    FCenterX := AValue;
-    if FGLImage <> nil then
-    begin
-      FGLImage.CenterX := FCenterX;
-      VisibleChange;
-    end;
-  end;
+  FContent.Rotation := Value;
 end;
 
-procedure TCastleImageControl.SetCenterY(const AValue: Single);
+function TCastleImageControl.GetRotationCenter: TVector2;
 begin
-  if FCenterY <> AValue then
-  begin
-    FCenterY := AValue;
-    if FGLImage <> nil then
-    begin
-      FGLImage.CenterY := FCenterY;
-      VisibleChange;
-    end;
-  end;
+  Result := FContent.RotationCenter;
 end;
 
-procedure TCastleImageControl.SetRotation(const AValue: Single);
+procedure TCastleImageControl.SetRotationCenter(const Value: TVector2);
 begin
-  if FRotation <> AValue then
-  begin
-    FRotation := AValue;
-    if FGLImage <> nil then
-    begin
-      FGLImage.Rotation := FRotation;
-      VisibleChange;
-    end;
-  end;
-end;
-
-procedure TCastleImageControl.SetImage(const Value: TCastleImage);
-begin
-  if FImage <> Value then
-  begin
-    if OwnsImage then FreeAndNil(FImage);
-    FImage := Value;
-    ImageChanged;
-  end;
-end;
-
-procedure TCastleImageControl.Render;
-var
-  SR: TRectangle;
-begin
-  inherited;
-  if FGLImage = nil then Exit;
-  SR := ScreenRect;
-  if FCorners.IsZero then
-    FGLImage.Draw(SR) else
-  begin
-    FGLImage.ScaleCorners := UIScale;
-    FGLImage.Draw3x3(SR, FCorners);
-  end;
-  { Useful to debug that ProportionalScaling works.
-  if Stretch and not FullSize then
-    Theme.Draw(Rectangle(Left, Bottom, Width, Height), tiActiveFrame, UIScale); }
-end;
-
-function TCastleImageControl.Rect: TRectangle;
-var
-  NewWidth, NewHeight, NewLeft, NewBottom: Integer;
-  ApplyScaling: boolean;
-begin
-  ApplyScaling := true;
-  if not Stretch then
-  begin
-    if FImage <> nil then
-      Result := Rectangle(Left, Bottom, FImage.Width, FImage.Height) else
-      Result := Rectangle(Left, Bottom, 0, 0);
-  end else
-  begin
-    if FullSize then
-    begin
-      Result := ParentRect;
-      ApplyScaling := false;
-    end else
-    if (ProportionalScaling in [psFit, psEnclose]) and (FImage <> nil) then
-    begin
-      if (ProportionalScaling = psFit) =
-         (Width / Height > FImage.Width / FImage.Height) then
-      begin
-        NewWidth := FImage.Width * Height div FImage.Height;
-        NewLeft := Left + (Width - NewWidth) div 2;
-        Result := Rectangle(NewLeft, Bottom, NewWidth, Height);
-      end else
-      begin
-        NewHeight := FImage.Height * Width div FImage.Width;
-        NewBottom := Bottom + (Height - NewHeight) div 2;
-        Result := Rectangle(Left, NewBottom, Width, NewHeight);
-      end;
-    end else
-      Result := Rectangle(Left, Bottom, Width, Height);
-  end;
-
-  if ApplyScaling then
-    // applying UIScale on this is easy...
-    Result := Result.ScaleAround0(UIScale);
+  FContent.RotationCenter := Value;
 end;
 
 procedure TCastleImageControl.GLContextOpen;
-begin
+begin;
   inherited;
-  if FGLImage = nil then
-    ImageChanged;
+  { Calling this is not strictly necessary. It means we load the OpenGL
+    resources *now*, instead of on-demand right before 1st render. }
+  FContent.DrawableImage.PrepareResources;
 end;
 
-procedure TCastleImageControl.GLContextClose;
+procedure TCastleImageControl.Render;
 begin
-  FreeAndNil(FGLImage);
   inherited;
+  FContent.OnChange := nil;
+  FContent.ScaleCorners := UIScale;
+  FContent.InternalVisualizeProtectedSides := Stretch;
+  FContent.Draw(RenderRect);
+  FContent.OnChange := @ContentChanged;
+end;
+
+procedure TCastleImageControl.PreferredSize(var PreferredWidth, PreferredHeight: Single);
+var
+  ImageWidth, ImageHeight: Single;
+begin
+  inherited;
+
+  ImageWidth  := FContent.DrawableImage.Width;
+  ImageHeight := FContent.DrawableImage.Height;
+  if FDetectScaleFromUrl and (FContent.ScaleFromUrl <> 1) then
+  begin
+    ImageWidth  /= FContent.ScaleFromUrl;
+    ImageHeight /= FContent.ScaleFromUrl;
+  end;
+
+  if not Stretch then
+  begin
+    PreferredWidth  := ImageWidth  * UIScale;
+    PreferredHeight := ImageHeight * UIScale;
+  end else
+  if (ProportionalScaling in [psFit, psEnclose]) and
+     (ImageWidth <> 0) and
+     (ImageHeight <> 0) then
+  begin
+    if (ProportionalScaling = psFit) =
+       (PreferredWidth / PreferredHeight >
+        ImageWidth / ImageHeight) then
+    begin
+      PreferredWidth := ImageWidth * PreferredHeight / ImageHeight;
+    end else
+    begin
+      PreferredHeight := ImageHeight * PreferredWidth / ImageWidth;
+    end;
+  end;
+end;
+
+procedure TCastleImageControl.EditorAllowResize(
+  out ResizeWidth, ResizeHeight: Boolean; out Reason: String);
+begin
+  inherited;
+  if not Stretch then
+  begin
+    ResizeWidth := false;
+    ResizeHeight := false;
+    Reason := SAppendPart(Reason, NL, 'Turn on "TCastleImageControl.Stretch" to change size.');
+  end;
+end;
+
+procedure TCastleImageControl.ContentChanged(Sender: TObject);
+begin
+  VisibleChange([chRectangle]);
 end;
 
 procedure TCastleImageControl.ImageChanged;
 begin
-  if GLInitialized then
-  begin
-    if FImage <> nil then
-    begin
-      if FGLImage <> nil then
-        FGLImage.Load(FImage) else
-      begin
-        FGLImage := TGLImage.Create(FImage, FSmoothScaling, false);
-        FGLImage.Color := Color;
-        FGLImage.CenterX := FCenterX;
-        FGLImage.CenterY := FCenterY;
-        FGLImage.Rotation := FRotation;
-        FGLImage.Clip := FClip;
-        FGLImage.ClipLine := FClipLine;
-        FGLImage.Alpha := AlphaChannel;
-      end;
-    end else
-      FreeAndNil(FGLImage); // make sure to free FGLImage when FImage is nil
-    VisibleChange;
-  end;
+  FContent.ImageChanged;
+end;
+
+function TCastleImageControl.GetAlphaChannel: TAutoAlphaChannel;
+begin
+  Result := FContent.AlphaChannel;
 end;
 
 procedure TCastleImageControl.SetAlphaChannel(const Value: TAutoAlphaChannel);
 begin
-  if FAlphaChannel <> Value then
-  Begin
-    FAlphaChannel := Value;
-    if FGLImage <> nil then
-    begin
-      FGLImage.Alpha := Value;
-      VisibleChange;
-    end;
-  end;
+  FContent.AlphaChannel := Value;
 end;
 
 function TCastleImageControl.GetBlending: boolean;
@@ -486,7 +544,7 @@ begin
   if FStretch <> Value then
   begin
     FStretch := Value;
-    VisibleChange;
+    VisibleChange([chRectangle]);
   end;
 end;
 
@@ -508,48 +566,180 @@ begin
   if FProportionalScaling <> Value then
   begin
     FProportionalScaling := Value;
-    VisibleChange;
+    VisibleChange([chRectangle]);
   end;
+end;
+
+function TCastleImageControl.GetURL: String;
+begin
+  Result := FContent.URL;
+end;
+
+procedure TCastleImageControl.SetURL(const Value: String);
+begin
+  FContent.URL := Value;
+end;
+
+function TCastleImageControl.GetColor: TCastleColor;
+begin
+  Result := FContent.Color;
 end;
 
 procedure TCastleImageControl.SetColor(const Value: TCastleColor);
 begin
-  if not TCastleColor.PerfectlyEquals(FColor, Value) then
+  FContent.Color := Value;
+end;
+
+function TCastleImageControl.GetCustomShader: TGLSLProgram;
+begin
+  Result := FContent.CustomShader;
+end;
+
+procedure TCastleImageControl.SetCustomShader(const Value: TGLSLProgram);
+begin
+  FContent.CustomShader := Value;
+end;
+
+function TCastleImageControl.GetDrawableImage: TDrawableImage;
+begin
+  Result := FContent.DrawableImage;
+end;
+
+procedure TCastleImageControl.SetDrawableImage(const Value: TDrawableImage);
+begin
+  FContent.DrawableImage := Value;
+end;
+
+function TCastleImageControl.GetOwnsDrawableImage: Boolean;
+begin
+  Result := FContent.OwnsDrawableImage;
+end;
+
+procedure TCastleImageControl.SetOwnsDrawableImage(const Value: Boolean);
+begin
+  FContent.OwnsDrawableImage := Value;
+end;
+
+function TCastleImageControl.GetImage: TEncodedImage;
+begin
+  Result := FContent.Image;
+end;
+
+procedure TCastleImageControl.SetImage(const Value: TEncodedImage);
+begin
+  FContent.Image := Value;
+end;
+
+function TCastleImageControl.GetOwnsImage: Boolean;
+begin
+  Result := FContent.OwnsImage;
+end;
+
+procedure TCastleImageControl.SetOwnsImage(const Value: Boolean);
+begin
+  FContent.OwnsImage := Value;
+end;
+
+function TCastleImageControl.GetFlipVertical: Boolean;
+begin
+  Result := FContent.FlipVertical;
+end;
+
+procedure TCastleImageControl.SetFlipVertical(const Value: Boolean);
+begin
+  FContent.FlipVertical := Value;
+end;
+
+function TCastleImageControl.GetFlipHorizontal: Boolean;
+begin
+  Result := FContent.FlipHorizontal;
+end;
+
+procedure TCastleImageControl.SetFlipHorizontal(const Value: Boolean);
+begin
+  FContent.FlipHorizontal := Value;
+end;
+
+function TCastleImageControl.GetCache: Boolean;
+begin
+  Result := FContent.Cache;
+end;
+
+procedure TCastleImageControl.SetCache(const Value: boolean);
+begin
+  FContent.Cache := Value;
+end;
+
+procedure TCastleImageControl.SetDetectScaleFromUrl(const Value: Boolean);
+begin
+  if FDetectScaleFromUrl <> Value then
   begin
-    FColor := Value;
-    if FGLImage <> nil then
-    begin
-      FGLImage.Color := Value;
-      VisibleChange;
-    end;
+    FDetectScaleFromUrl := Value;
+    VisibleChange([chRender]);
   end;
 end;
 
-procedure TCastleImageControl.SetWidth(const Value: Cardinal);
+function TCastleImageControl.GetCorners: TVector4Integer;
 begin
-  if FWidth <> Value then
-  begin
-    FWidth := Value;
-    VisibleChange;
-  end;
+  Result := Vector4Integer(
+    Round(ProtectedSides.TotalTop),
+    Round(ProtectedSides.TotalRight),
+    Round(ProtectedSides.TotalBottom),
+    Round(ProtectedSides.TotalLeft)
+  );
 end;
 
-procedure TCastleImageControl.SetHeight(const Value: Cardinal);
+procedure TCastleImageControl.SetCorners(const Value: TVector4Integer);
 begin
-  if FHeight <> Value then
-  begin
-    FHeight := Value;
-    VisibleChange;
-  end;
+  ProtectedSides.AllSides := 0;
+  ProtectedSides.Top    := Value[0];
+  ProtectedSides.Right  := Value[1];
+  ProtectedSides.Bottom := Value[2];
+  ProtectedSides.Left   := Value[3];
 end;
 
-procedure TCastleImageControl.SetFullSize(const Value: boolean);
+function TCastleImageControl.PropertySection(
+  const PropertyName: String): TPropertySection;
 begin
-  if FFullSize <> Value then
-  begin
-    FFullSize := Value;
-    VisibleChange;
-  end;
+  if (PropertyName = 'URL') or
+     (PropertyName = 'Stretch') or
+     (PropertyName = 'ProportionalScaling') or
+     (PropertyName = 'ColorPersistent') then
+    Result := psBasic
+  else
+    Result := inherited PropertySection(PropertyName);
 end;
+
+function TCastleImageControl.GetCenterX: Single;
+begin
+  Result := RotationCenter.X;
+end;
+
+function TCastleImageControl.GetCenterY: Single;
+begin
+  Result := RotationCenter.Y;
+end;
+
+procedure TCastleImageControl.SetCenterX(const Value: Single);
+var
+  V: TVector2;
+begin
+  V := RotationCenter;
+  V.X := Value;
+  RotationCenter := V;
+end;
+
+procedure TCastleImageControl.SetCenterY(const Value: Single);
+var
+  V: TVector2;
+begin
+  V := RotationCenter;
+  V.Y := Value;
+  RotationCenter := V;
+end;
+
+{$define read_implementation_methods}
+{$I auto_generated_persistent_vectors/tcastleimagecontrol_persistent_vectors.inc}
+{$undef read_implementation_methods}
 
 {$endif read_implementation}

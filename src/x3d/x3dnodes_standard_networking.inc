@@ -39,7 +39,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdDescription: TSFString;
     public property FdDescription: TSFString read FFdDescription;
@@ -134,7 +133,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdLoad: TSFBool;
     public property FdLoad: TSFBool read FFdLoad;
@@ -208,7 +206,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     { Event out } { }
     strict private FEventChildren: TMFNodeEvent;
@@ -220,7 +217,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdTimeOut: TSFTime;
     public property FdTimeOut: TSFTime read FFdTimeOut;
@@ -273,13 +269,6 @@ end;
 class function TAnchorNode.ClassX3DType: string;
 begin
   Result := 'Anchor';
-end;
-
-class function TAnchorNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 function TAnchorNode.DirectEnumerateActive(Func: TEnumerateChildrenFunction): Pointer;
@@ -352,7 +341,7 @@ begin
       { in this case, we have either a new 3D world, or a document }
       UrlWithoutViewpoint := PathFromBaseUrl(UrlWithoutViewpoint);
       try
-        NewRootNode := Load3D(UrlWithoutViewpoint, false, true);
+        NewRootNode := LoadNode(UrlWithoutViewpoint, true);
 
         if NewRootNode = nil then
         begin
@@ -436,13 +425,6 @@ begin
   Result := 'Inline';
 end;
 
-class function TInlineNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
 procedure TInlineNode.ParseAfter(Reader: TX3DReaderNames);
 var
   Exported: TX3DNodeNames;
@@ -511,7 +493,7 @@ begin
     begin
       FullUrl := PathFromBaseUrl(FdUrl.Items[I]);
       try
-        FInlined := Load3D(FullUrl, false);
+        FInlined := LoadNode(FullUrl);
         if (Exported <> nil) and
            (TX3DRootNode(FInlined).ExportedNames <> nil) then
           Exported.Assign(TX3DRootNode(FInlined).ExportedNames);
@@ -669,12 +651,6 @@ begin
   Result := 'InlineLoadControl';
 end;
 
-class function TInlineLoadControlNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType);
-end;
-
 procedure TInlineLoadControlNode.AfterLoadInlined;
 var
   ChildrenToSend: TMFNode;
@@ -721,12 +697,6 @@ end;
 class function TLoadSensorNode.ClassX3DType: string;
 begin
   Result := 'LoadSensor';
-end;
-
-class function TLoadSensorNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 procedure RegisterNetworkingNodes;

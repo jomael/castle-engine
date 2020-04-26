@@ -22,7 +22,7 @@
   gives you a nice Lazarus component readily integrated with the engine,
   CastleWindow gives you a window (without LCL dependency) integrated with
   engine. Countless other engine units give you useful things
-  (like CastleScene, CastleSceneManager, CastleVectors... see the engine manual).
+  (like CastleScene, CastleViewport, CastleVectors... see the engine manual).
 
   Using the engine units directly gives you a complete object-oriented API
   in ObjectPascal to do everything :) The C library API (exposed in
@@ -65,6 +65,7 @@ type
     OpenGLControl1: TOpenGLControl;
     procedure BtnScreenshotClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
+    procedure FormDestroy(Sender: TObject);
     procedure FormResize(Sender: TObject);
     procedure OpenGLControl1KeyDown(Sender: TObject; var Key: Word;
       Shift: TShiftState);
@@ -122,8 +123,8 @@ var
 begin
   OpenGLControl1.MakeCurrent();
   Application.OnIdle := @IdleFunc;
-  CGE_Open(ecgeofLog, OpenGLControl1.Width, OpenGLControl1.Height, 96,
-    PCChar(PChar(GetAppConfigDir(false))));
+  CGE_Initialize(PCChar(PChar(GetAppConfigDir(false))));
+  CGE_Open(ecgeofLog, OpenGLControl1.Width, OpenGLControl1.Height, 96);
   CGE_SetLibraryCallbackProc(@OpenGlLibraryCallback);
   CGE_SetUserInterface(true);
   sFile := '../../3d_rendering_processing/data/bridge_final.x3dv';
@@ -131,6 +132,12 @@ begin
 
   OpenGLControl1.Invalidate;
   ActiveControl := OpenGLControl1;   // set focus in order to receive keydowns
+end;
+
+procedure TForm1.FormDestroy(Sender: TObject);
+begin
+  CGE_Close();
+  CGE_Finalize();
 end;
 
 procedure TForm1.FormResize(Sender: TObject);

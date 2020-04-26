@@ -4,56 +4,67 @@
 #     Compile all units, uses fpmake.
 #
 #   examples --
-#     Compile examples and tools (inside examples/ subdirectory).
-#     This compilation method uses our xxx_compile.sh Unix scripts,
-#     and requires only pure FPC installation.
+#     Compile most examples and tools (that don't use Lazarus LCL).
 #     Lazarus is not required (LCL dependent examples are not compiled).
-#     Note that you can also compile each example separately,
-#     just execute directly appropriate xxx_compile.sh scripts.
+#
+#     This compilation method calls our "build tool" to compile examples
+#     and other tools (build tool, in turn, calls a compiler like FPC or Delphi).
+#
+#     The exception is when compiling the "build tool" itself,
+#     then we call FPC directly. (Although we *could* use
+#     the "build tool" to compile (bootstrap) itself, but it's not what
+#     people expect by default, so we don't do it for now.)
 #
 #   examples-laz --
-#     Compile examples and tools (inside examples/ subdirectory).
+#     Compile all examples and tools using Lazarus.
 #     This compilation method uses our .lpi project files,
 #     and compiles every program by the lazbuild utility.
 #     Lazarus and FPC installation is required, and Lazarus must know
 #     about the castle_* packages (compile them from Lazarus first).
 #
 #   clean --
-#     Delete FPC 1.0.x Windows trash (*.ppw, *.ow), FPC trash, Delphi trash,
-#     Lazarus trash (*.compiled),
-#     binaries of example programs,
-#     also FPC compiled trash in packages/*/lib/.
+#     Delete FPC temporary files, Delphi temporary files,
+#     Lazarus temporary files (*.compiled),
+#     binaries of example programs and tools.
 #
 # Not-so-commonly-useful targets:
 #
 #   cleanmore --
 #     Same as clean, but also delete:
-#     - Emacs backup files (*~) and
-#     - Delphi backup files (*.~???)
+#     - Backup files from Emacs (*~), Lazarus (backup), Delphi (*.~???), Blender,
+#       QtCreator (*.pro.user)...
 #     - pasdoc generated documentation in doc/pasdoc/ and doc/reference/
 #     - closed-source libs you may have left in tools/build-tool/data
-#     - QtCreator *.pro.user
 #     This is a useful step when packing the release of CGE.
 #
 #   cleanall --
 #     Same as cleanmore for now.
 #     Intention is to remove *everything* that can be manually recreated,
-#     even if somewhat hard, and clean editor backup.
+#     even if it's somewhat hard to recreate.
 
-# Hack for Cygwin, to avoid using Windows built-in "find" program.
-#FIND:=/bin/find
-FIND:=find
+ifeq ($(OS),Windows_NT)
+  # Hack for Cygwin, to avoid using Windows built-in "find" program.
+  FIND:=`cygpath --mixed /bin/find`
+else
+  FIND:=find
+endif
 
 # compile ------------------------------------------------------------
 
 .PHONY: all
 all:
 	$(MAKE) --no-print-directory build-using-fpmake
+	$(MAKE) tools
+
+.PHONY: tools
+tools:
+# Compile build tool first, used to compile other tools and examples
+	tools/build-tool/castle-engine_compile.sh
 	tools/texture-font-to-pascal/texture-font-to-pascal_compile.sh
 	tools/image-to-pascal/image-to-pascal_compile.sh
 	tools/castle-curves/castle-curves_compile.sh
-	tools/build-tool/castle-engine_compile.sh
 	tools/sprite-sheet-to-x3d/sprite-sheet-to-x3d_compile.sh
+	tools/to-data-uri/to-data-uri_compile.sh
 
 .PHONY: build-using-fpmake
 build-using-fpmake:
@@ -74,7 +85,7 @@ build-using-fpmake:
 # So it does not copy .ppu/.o files, it does not change your /etc/fpc.cfg
 # or ~/.fpc.cfg. There are many ways how to install unit files,
 # we leave this step up to you.
-# See http://castle-engine.sourceforge.net/engine.php for documentation.
+# See https://castle-engine.io/engine.php for documentation.
 #
 # Below we only take care of installing the tools.
 # By default they are installed system-wide to /usr/local ,
@@ -97,6 +108,7 @@ install:
 	install tools/castle-curves/castle-curves $(BINDIR)
 	install tools/build-tool/castle-engine $(BINDIR)
 	install tools/sprite-sheet-to-x3d/sprite-sheet-to-x3d $(BINDIR)
+	install tools/to-data-uri/to-data-uri $(BINDIR)
 #	cp -R tools/build-tool/data $(DATADIR)/castle-engine
 	install -d  $(DATADIR)
 	cd tools/build-tool/data/ && \
@@ -140,98 +152,104 @@ strip-precompiled-libraries:
 #    fftw library (especially since it's really not needed by my engine,
 #    currently my fftw code is just for testing, it's not actually used
 #    by our engine or any game for anything).
+#
+# Note that examples with CastleEngineManifest.xml are not listed here.
+# They will be found and compiled by a Makefile rule that searches using
+# "find ... -iname CastleEngineManifest.xml ..." .
+#
+# TODO: In the long run, it would be best if *all* examples had CastleEngineManifest.xml,
+# then the need to maintain EXAMPLES_BASE_NAMES would disappear.
 
 EXAMPLES_BASE_NAMES := \
-  examples/audio/algets \
-  examples/audio/alplay \
-  examples/audio/doppler_demo \
-  examples/audio/efx_demo \
-  examples/tools/dircleaner \
-  examples/tools/stringoper \
-  examples/tools/castle_download \
-  examples/tools/to_data_uri \
-  examples/castlescript/castle_calculator \
-  examples/castlescript/image_make_by_script \
-  examples/images_videos/image_convert \
-  examples/images_videos/dds_decompose \
-  examples/images_videos/image_identify \
-  examples/images_videos/image_paint \
-  examples/images_videos/image_compare \
-  examples/images_videos/simple_video_editor \
-  examples/images_videos/drawing_modes_test \
-  examples/images_videos/draw_images_on_gpu \
-  examples/images_videos/test_castleimage_draw3x3 \
-  examples/joystick/joystick_demo \
-  examples/fonts/test_font_break \
-  examples/fonts/font_from_texture \
-  examples/fonts/test_local_characters/test_local_characters \
-  examples/fonts/html_text \
-  examples/fonts/font_draw_over_image \
-  examples/tiled/tiled_demo_standalone \
-  examples/window/window_events \
-  examples/window/window_menu \
-  examples/window/window_gtk_mix \
-  examples/window/multi_window \
-  examples/curves/simplest_curve_read \
-  examples/space_filling_curve/draw_space_filling_curve \
-  examples/research_special_rendering_methods/radiance_transfer/radiance_transfer \
-  examples/research_special_rendering_methods/radiance_transfer/precompute_radiance_transfer \
-  examples/research_special_rendering_methods/radiance_transfer/show_sh \
-  examples/research_special_rendering_methods/dynamic_ambient_occlusion/dynamic_ambient_occlusion \
-  examples/terrain/terrain \
-  examples/3d_rendering_processing/triangulate_demo \
-  examples/3d_rendering_processing/placeholder_names \
-  examples/3d_rendering_processing/multiple_viewports \
-  examples/3d_rendering_processing/fog_culling \
   examples/3d_rendering_processing/animate_3d_model_by_code \
   examples/3d_rendering_processing/animate_3d_model_by_code_2 \
-  examples/3d_rendering_processing/call_pascal_code_from_3d_model_script \
-  examples/3d_rendering_processing/view_3d_model_advanced \
-  examples/3d_rendering_processing/scene_manager_demos \
-  examples/3d_rendering_processing/view_3d_model_basic \
   examples/3d_rendering_processing/build_3d_object_by_code \
   examples/3d_rendering_processing/build_3d_tunnel \
-  examples/3d_rendering_processing/combine_multiple_x3d_into_one \
-  examples/3d_rendering_processing/display_box_custom_shaders \
-  examples/3d_rendering_processing/listen_on_x3d_events \
+  examples/3d_rendering_processing/call_pascal_code_from_3d_model_script \
   examples/3d_rendering_processing/cars_demo \
+  examples/3d_rendering_processing/combine_multiple_x3d_into_one \
+  examples/3d_rendering_processing/custom_input_shortcuts_saved_to_config \
+  examples/3d_rendering_processing/detect_scene_clicks \
+  examples/3d_rendering_processing/display_box_custom_shaders \
+  examples/3d_rendering_processing/fog_culling \
+  examples/3d_rendering_processing/listen_on_x3d_events \
+  examples/3d_rendering_processing/multiple_viewports \
+  examples/3d_rendering_processing/placeholder_names \
+  examples/3d_rendering_processing/render_3d_to_image \
   examples/3d_rendering_processing/render_3d_to_texture_and_use_as_quad \
-  src/x3d/teapot/teapot_3d_to_pascal \
-  src/x3d/nodes_specification/x3d-nodes-to-pascal/x3d-nodes-to-pascal \
-  examples/3d_sound_game/lets_take_a_walk \
-  examples/resource_animations/resource_animations \
-  examples/fps_game/fps_game \
-  examples/2d_standard_ui/show_various_ui_controls/show_various_ui_controls \
-  examples/2d_standard_ui/edit_test/edit_test \
-  examples/2d_standard_ui/timer_test/timer_test \
-  examples/2d_standard_ui/zombie_fighter/zombie_fighter \
-  examples/mobile/simple_3d_demo/simple_3d_demo_standalone \
-  tools/image-to-pascal/image-to-pascal \
-  tools/texture-font-to-pascal/texture-font-to-pascal \
-  tools/castle-curves/castle-curves \
-  tools/sprite-sheet-to-x3d/sprite-sheet-to-x3d \
+  examples/3d_rendering_processing/transform_scenes_demos \
+  examples/3d_rendering_processing/show_bounding_rect_in_2d \
+  examples/3d_rendering_processing/switch_projection \
+  examples/3d_rendering_processing/triangulate_demo \
+  examples/3d_rendering_processing/view_3d_model_advanced \
+  examples/3d_rendering_processing/view_3d_model_basic \
+  examples/audio/simplest_play_sound \
+  examples/audio/doppler_demo \
+  examples/castlescript/castle_calculator \
+  examples/castlescript/image_make_by_script \
+  examples/curves/simplest_curve_read \
+  examples/fonts/font_draw_over_image \
+  examples/fonts/font_from_texture \
+  examples/fonts/html_text \
+  examples/fonts/test_font_break \
+  examples/images_videos/background_tiling \
+  examples/images_videos/dds_decompose \
+  examples/images_videos/draw_images_on_gpu \
+  examples/images_videos/drawing_modes_test \
+  examples/images_videos/image_compare \
+  examples/images_videos/image_convert \
+  examples/images_videos/image_identify \
+  examples/images_videos/image_paint \
+  examples/images_videos/image_render_custom_shader \
+  examples/images_videos/simple_video_editor \
+  examples/images_videos/test_castleimage_draw3x3 \
   examples/random_generator/globalrandom \
   examples/random_generator/random_speed_test \
-  examples/random_generator/random_threads_test
+  examples/random_generator/random_threads_test \
+  examples/research_special_rendering_methods/dynamic_ambient_occlusion/dynamic_ambient_occlusion \
+  examples/research_special_rendering_methods/radiance_transfer/precompute_radiance_transfer \
+  examples/research_special_rendering_methods/radiance_transfer/radiance_transfer \
+  examples/research_special_rendering_methods/radiance_transfer/show_sh \
+  examples/simple_command_line_utilities/castle_download \
+  examples/simple_command_line_utilities/dircleaner \
+  examples/simple_command_line_utilities/stringoper \
+  examples/space_filling_curve/draw_space_filling_curve \
+  examples/window/multi_window \
+  examples/window/window_events \
+  examples/window/window_menu \
+  tools/castle-curves/castle-curves \
+  tools/image-to-pascal/image-to-pascal \
+  tools/internal/generate-persistent-vectors/generate-persistent-vectors \
+  tools/internal/teapot-to-pascal/teapot-to-pascal \
+  tools/internal/x3d-nodes-to-pascal/code/x3d-nodes-to-pascal \
+  tools/sprite-sheet-to-x3d/sprite-sheet-to-x3d \
+  tools/texture-font-to-pascal/texture-font-to-pascal \
+  tools/to-data-uri/to-data-uri
 
+# Note that src/library/castleengine must be compiled before
+# cge_dynlib_tester, otherwise linking cge_dynlib_tester will fail.
 EXAMPLES_LAZARUS_BASE_NAMES := \
-  examples/audio/test_al_source_allocator \
   examples/audio/audio_player_scrubber/audio_player_scrubber \
+  examples/audio/test_sound_source_allocator/test_sound_source_allocator \
+  examples/lazarus/load_model_and_camera_manually/load_model_and_camera_manually \
   examples/lazarus/model_3d_viewer/model_3d_viewer \
   examples/lazarus/model_3d_with_2d_controls/model_3d_with_2d_controls \
-  examples/lazarus/load_model_and_camera_manually/load_model_and_camera_manually \
+  examples/lazarus/quick_2d_game/quick_2d_game_lazarus \
   examples/lazarus/two_controls/two_controls \
-  tests/test_castle_game_engine \
   src/library/castleengine \
   examples/library/lazarus_library_tester/cge_dynlib_tester \
   examples/random_generator/graphics_random_test \
-  tools/build-tool/code/castle-engine
+  tests/test_castle_game_engine \
+  tools/build-tool/code/castle-engine \
+  tools/castle-editor/code/castle_editor
 
 EXAMPLES_UNIX_EXECUTABLES := $(EXAMPLES_BASE_NAMES) \
-  $(EXAMPLES_LAZARUS_BASE_NAMES)
+  $(EXAMPLES_LAZARUS_BASE_NAMES) \
+  tools/castle-editor/castle-editor
 
 EXAMPLES_WINDOWS_EXECUTABLES := $(addsuffix .exe,$(EXAMPLES_BASE_NAMES)) \
-  $(addsuffix .exe,$(EXAMPLES_LAZARUS_BASE_NAMES))
+  $(addsuffix .exe,$(EXAMPLES_LAZARUS_BASE_NAMES)) \
+  tools/castle-editor/castle-editor.exe
 
 EXAMPLES_MACOSX_APPS := $(addsuffix .app,$(EXAMPLES_BASE_NAMES)) \
   $(addsuffix .app,$(EXAMPLES_LAZARUS_BASE_NAMES))
@@ -241,9 +259,23 @@ EXAMPLES_RES_FILES := $(addsuffix .res,$(EXAMPLES_BASE_NAMES)) \
 
 .PHONY: examples
 examples:
+# Compile tools, in particular build tool, first
+	$(MAKE) tools
+
+# Compile all examples using xxx_compile.sh shell script (calls build tool)
 	$(foreach NAME,$(EXAMPLES_BASE_NAMES),$(NAME)_compile.sh && ) true
-# compile all examples with CastleEngineManifest.xml inside
-	$(FIND) . -iname CastleEngineManifest.xml -execdir castle-engine $(CASTLE_ENGINE_TOOL_OPTIONS) compile ';'
+
+# Compile all examples with CastleEngineManifest.xml inside.
+# Use xargs (not "find ... -execdir") because we want the "make examples" to fail
+# if something failed to compile.
+# We do not compile examples/tcp_connection/ here,
+# as it requires Indy which may not be installed.
+	$(FIND) . \
+	  '(' -path ./examples/tcp_connection -prune ')' -o \
+	  '(' -path ./tools/castle-editor/data/project_templates -prune ')' -o \
+	  '(' -path ./tools/build-tool/tests/data -prune ')' -o \
+	  '(' -iname CastleEngineManifest.xml -print0 ')' | \
+	  xargs -0 -n1 tools/build-tool/castle-engine $(CASTLE_ENGINE_TOOL_OPTIONS) compile --project
 
 .PHONY: examples-ignore-errors
 examples-ignore-errors:
@@ -259,7 +291,22 @@ examples-laz:
 	lazbuild packages/castle_base.lpk
 	lazbuild packages/castle_window.lpk
 	lazbuild packages/castle_components.lpk
-	$(foreach NAME,$(EXAMPLES_BASE_NAMES) $(EXAMPLES_LAZARUS_BASE_NAMES),lazbuild $(NAME).lpi && ) true
+# lazbuild fails with access violation sometimes, so just try it 2 times:
+#  An unhandled exception occurred at $0000000000575F5F:
+#   EAccessViolation: Access violation
+#     $0000000000575F5F line 590 of exttools.pas
+#     $000000000057A027 line 1525 of exttools.pas
+#     $000000000057B231 line 1814 of exttools.pas
+	for LPI_FILENAME in $(EXAMPLES_BASE_NAMES) $(EXAMPLES_LAZARUS_BASE_NAMES); do \
+	  if ! lazbuild $${LPI_FILENAME}.lpi; then \
+	    echo '1st execution of lazbuild failed, trying again'; \
+	    make clean; \
+	    lazbuild packages/castle_base.lpk; \
+	    lazbuild packages/castle_window.lpk; \
+	    lazbuild packages/castle_components.lpk; \
+	    lazbuild $${LPI_FILENAME}.lpi; \
+	  fi; \
+	done
 
 # Compile only Lazarus-specific examples (that depend on LCL)
 .PHONY: examples-only-laz
@@ -267,7 +314,22 @@ examples-only-laz:
 	lazbuild packages/castle_base.lpk
 	lazbuild packages/castle_window.lpk
 	lazbuild packages/castle_components.lpk
-	$(foreach NAME,$(EXAMPLES_LAZARUS_BASE_NAMES),lazbuild $(NAME).lpi && ) true
+# lazbuild fails with access violation sometimes, so just try it 2 times:
+#  An unhandled exception occurred at $0000000000575F5F:
+#   EAccessViolation: Access violation
+#     $0000000000575F5F line 590 of exttools.pas
+#     $000000000057A027 line 1525 of exttools.pas
+#     $000000000057B231 line 1814 of exttools.pas
+	for LPI_FILENAME in $(EXAMPLES_LAZARUS_BASE_NAMES); do \
+	  if ! lazbuild $${LPI_FILENAME}.lpi; then \
+	    echo '1st execution of lazbuild failed, trying again'; \
+	    make clean; \
+	    lazbuild packages/castle_base.lpk; \
+	    lazbuild packages/castle_window.lpk; \
+	    lazbuild packages/castle_components.lpk; \
+	    lazbuild $${LPI_FILENAME}.lpi; \
+	  fi; \
+	done
 
 # cleaning ------------------------------------------------------------
 
@@ -282,14 +344,18 @@ clean: cleanexamples
 			   -iname '*.lps' -or \
 			   -iname '*.libimp*.a' -or \
 			   -iname '*.apk' -or \
+			   -iname '*.dbg' -or \
 	                   -iname '*.dcu' -or -iname '*.dpu' -or \
+			   -iname 'automatic-windows-resources.res' -or \
+			   -iname 'castle-auto-generated-resources.res' -or \
 	                   -iname '*.log' ')' \
 	     -print \
 	     | xargs rm -f
 	$(FIND) . -type d '(' -name 'lib' -or \
 	                      -name 'castle-engine-output' ')' \
 	     -exec rm -Rf '{}' ';' -prune
-	rm -Rf packages/castle_base.pas \
+	rm -Rf bin/ \
+	  packages/castle_base.pas \
 	  packages/castle_window.pas \
 	  packages/castle_components.pas \
 	  packages/alternative_castle_window_based_on_lcl.pas \
@@ -309,8 +375,19 @@ clean: cleanexamples
 	       src/library/libcastleengine.dylib \
 	       src/library/castleengine.dll \
 	       src/library/libcastleengine.so
-# clean every project with CastleEngineManifest.xml
-	$(FIND) . -iname CastleEngineManifest.xml -execdir castle-engine clean ';'
+# Clean every project with CastleEngineManifest.xml .
+#
+# Avoid a project in project_templates,
+# that has CastleEngineManifest.xml with macros, and would cause errors:
+# """ Project name contains invalid characters: "${PROJECT_NAME}" """ .
+#
+# Avoid project in build-tool/tests/data that is not a real project
+# (will never be compiled).
+	$(FIND) . \
+	  '(' -path ./tools/castle-editor/data/project_templates -prune ')' -or \
+	  '(' -path ./tools/build-tool/tests/data -prune ')' -or \
+	  '(' -iname CastleEngineManifest.xml \
+	      -execdir castle-engine clean ';' ')'
 
 cleanmore: clean
 	$(FIND) . -type f '(' -iname '*~' -or \
@@ -325,37 +402,27 @@ cleanmore: clean
 	rm -Rf tools/build-tool/data/android/integrated-services/giftiz/app/libs/*.jar \
 	       tools/build-tool/data/android/integrated-services/chartboost/app/libs/*.jar \
 	       tools/build-tool/data/android/integrated-services/heyzap/app/libs/*.jar \
+	       tools/build-tool/data/android/integrated-services/heyzap/app/libs/*.aar \
 	       tools/build-tool/data/android/integrated-services/startapp/app/libs/*.jar \
 	       tools/build-tool/data/ios/services/game_analytics/cge_project_name/game_analytics/GameAnalytics.h \
 	       tools/build-tool/data/ios/services/game_analytics/cge_project_name/game_analytics/libGameAnalytics.a
+	rm -f castle-engine*.zip tools/internal/pack_release/castle-engine*.zip
 
 cleanall: cleanmore
 
-# Clean compiled versions of CastleWindow unit.
-# Makes sure that unit CastleWindow will be *always* *rebuild* in next compilation.
-#
-# This is useful, since CastleWindow unit may be compiled with various
-# back-ends (e.g. under Unices two most useful back-ends
-# are XLIB and GTK). To make sure that compilation of some program
-# will produce exactly what you need, it's useful to force rebuild of CastleWindow.
-#
-# Of course this means that compilation time will suffer a little,
-# since CastleWindow unit will be possibly rebuild without any real need.
-clean-window:
-	rm -f src/window/castlewindow.o \
-	      src/window/castlewindow.ppu \
-	      src/window/CastleWindow.o \
-	      src/window/CastleWindow.ppu
+# tests ----------------------------------------
 
-# ----------------------------------------
-# Set SVN tag.
-
-# Don't use anymore, we use GIT now.
-
-# svntag:
-# 	source ../www/pack/generated_versions.sh && \
-# 	  svn copy https://svn.code.sf.net/p/castle-engine/code/trunk/castle_game_engine \
-# 	           https://svn.code.sf.net/p/castle-engine/code/tags/castle_game_engine/"$$GENERATED_VERSION_CASTLE_GAME_ENGINE" \
-# 	  -m "Tagging the $$GENERATED_VERSION_CASTLE_GAME_ENGINE version of 'Castle Game Engine'."
+# Build and run tests.
+# Requires the CGE build tool ("castle-engine") to be available on $PATH.
+.PHONY: tests
+tests:
+	cd tests/ && \
+	  castle-engine clean && \
+	  ./compile_console.sh -dNO_WINDOW_SYSTEM && \
+	  ./test_castle_game_engine -a
+	cd tests/ && \
+	  castle-engine clean && \
+	  ./compile_console_release.sh -dNO_WINDOW_SYSTEM && \
+	  ./test_castle_game_engine -a
 
 # eof ------------------------------------------------------------

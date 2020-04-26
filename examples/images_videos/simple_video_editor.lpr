@@ -31,7 +31,7 @@ uses SysUtils, Math,
   CastleUIControls, CastleRectangles;
 
 var
-  Window: TCastleWindowCustom;
+  Window: TCastleWindowBase;
 
   Video: TVideo;
   GLVideo: TGLVideo2D;
@@ -87,7 +87,7 @@ begin
 
   if Video.Loaded then
   begin
-    GLVideo.GLImageFromTime(Time).Draw(0, 0);
+    GLVideo.DrawableImageFromTime(Time).Draw(0, 0);
 
     { draw time of the video bar }
     DrawRectangle(Rectangle(0, Window.Height - TimeBarHeight,
@@ -309,7 +309,7 @@ end;
 begin
   LoadAnimatedGifs := true;
 
-  Window := TCastleWindowCustom.Create(Application);
+  Window := TCastleWindowBase.Create(Application);
 
   try
     Application.MainWindow := Window;

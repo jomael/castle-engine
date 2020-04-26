@@ -332,14 +332,8 @@ type
 
 implementation
 
-{$warnings off}
-{ use deprecated units below, only to have them compiled together with Lazarus
-  castle_base.lpk package }
 uses SysUtils,
-  CastleUtils, CastleMessaging, CastleApplicationProperties, CastleLog,
-  // this is deprecated
-  CastleGooglePlayGames, CastleShaders, CastleGenericLists, CastleWarnings;
-{$warnings on}
+  CastleUtils, CastleMessaging, CastleApplicationProperties, CastleLog;
 
 constructor TGameService.Create(AOwner: TComponent);
 begin
@@ -477,6 +471,10 @@ end;
 
 procedure TGameService.Achievement(const AchievementId: string);
 begin
+  { Report invalid AchievementId right now, otherwise Google Play will report
+    this error too. It's better to have it error on all platforms. }
+  if AchievementId = '' then
+    raise Exception.Create('Achievement name cannot be empty');
   Messaging.Send(['achievement', AchievementId]);
 end;
 

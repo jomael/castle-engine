@@ -75,7 +75,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdDirectOutput: TSFBool;
     public property FdDirectOutput: TSFBool read FFdDirectOutput;
@@ -144,9 +143,8 @@ begin
   if Initialized and (Scene <> nil) then
   begin
     { Disable this by default, as it really trashes the log with a lot
-      of messages in case script is used continously (with TimeSensor or such).
-    if Log then
-      WritelnLog('VRML Script', 'Executing "' + FunctionName + '"');
+      of messages in case script is used continuously (with TimeSensor or such).
+    WritelnLog('VRML Script', 'Executing "' + FunctionName + '"');
     }
 
     case FInitializedScriptType of
@@ -202,7 +200,9 @@ begin
             FreeAndNil(ParameterTime)
           end;
         end;
+      {$ifndef COMPILER_CASE_ANALYSIS}
       else raise EInternalError.Create('Unknown script type initialized');
+      {$endif}
     end;
   end;
 end;
@@ -361,13 +361,6 @@ end;
 class function TScriptNode.ClassX3DType: string;
 begin
   Result := 'Script';
-end;
-
-class function TScriptNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 procedure TScriptNode.PostAddInterfaceDeclaration(

@@ -256,7 +256,8 @@ var
           if I.Current.TagName = 'reflectivity' then
           begin
             if AllowKambiExtensions then
-              Mat.FdMirror.Value := ReadFloatOrParam(I.Current) else
+              Mat.FdMirror.Value := ReadFloatOrParam(I.Current)
+            else
               ReadFloatOrParam(I.Current);
           end else
           if I.Current.TagName = 'transparent' then

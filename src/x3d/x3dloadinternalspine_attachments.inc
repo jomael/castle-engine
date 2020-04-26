@@ -31,7 +31,7 @@
     Name: string;
     Node: TTransformNode;
     NodeUsedAsChild: boolean;
-    Material: TMaterialNode; //< initialized together with Node, always inside
+    Material: TUnlitMaterialNode; //< initialized together with Node, always inside
     destructor Destroy; override;
     procedure Parse(const Json: TJSONObject; const Bones: TBoneList); virtual;
     { Create and parse correct TAttachment descendant.
@@ -58,9 +58,8 @@
   end;
 
   TAbstractMeshAttachment = class(TRegionAttachment)
-  strict protected
-    Coord: TCoordinateNode;
   public
+    Coord: TCoordinateNode;
     UVs: TVector2List;
     Triangles: TLongIntList;
     Vertices: TVector2List;
@@ -112,6 +111,14 @@
   TPathAttachment = class(TAttachment)
     Vertices: TVector2List;
     Lengths: TSingleList;
+    constructor Create;
+    destructor Destroy; override;
+    procedure Parse(const Json: TJSONObject; const Bones: TBoneList); override;
+    procedure BuildNodes(const BaseUrl: string; const TextureLoader: TTextureLoader); override;
+  end;
+
+  TClippingAttachment = class(TAttachment)
+    Vertices: TVector2List;
     constructor Create;
     destructor Destroy; override;
     procedure Parse(const Json: TJSONObject; const Bones: TBoneList); override;
@@ -170,6 +177,13 @@ begin
     Result.AttachmentName := AnAttachmentName;
     Result.Parse(Json, Bones);
   end else
+  if TypeName = 'clipping' then
+  begin
+    Result := TClippingAttachment.Create;
+    Result.SlotName := ASlotName;
+    Result.AttachmentName := AnAttachmentName;
+    Result.Parse(Json, Bones);
+  end else
   begin
     WritelnWarning('Spine', 'Spine region (attachment) type "%s" is not supported', [TypeName]);
     Result := nil;
@@ -221,7 +235,7 @@ begin
     WritelnWarning('Spine', 'TRegionAttachment.BuildNodes multiple times on same node');
 
   Node := TTransformNode.Create(
-    Format('Slot_%s_Attachment_%s', [ToX3DName(SlotName), ToX3DName(Name)]),
+    Format('Slot_%s_Attachment_%s', [SlotName, Name]),
     BaseUrl);
   Node.Translation := Vector3(XY[0], XY[1], 0);
   Node.Scale := Vector3(Scale[0], Scale[1], 1);
@@ -239,12 +253,12 @@ begin
   if Shape.Appearance.Texture <> nil then
     Shape.Geometry := BuildGeometry(BaseUrl, TexCoord, TexRect, TexRotated);
 
-  Shape.Material := TMaterialNode.Create(
-    Format('Material_Slot_%s_Attachment_%s', [ToX3DName(SlotName), ToX3DName(Name)]),
+  Material := TUnlitMaterialNode.Create(
+    Format('Material_Slot_%s_Attachment_%s', [SlotName, Name]),
     BaseUrl);
-  Shape.Material.ForcePureEmissive;
-  Shape.Material.EmissiveColor := Vector3(1, 1, 1);
-  Material := Shape.Material;
+  Material.EmissiveColor := Vector3(1, 1, 1);
+
+  Shape.Material := Material;
 end;
 
 function TRegionAttachment.BuildGeometry(const BaseUrl: string;
@@ -263,7 +277,9 @@ begin
   Faces.Solid := false;
   Faces.SetCoordIndex([0, 1, 2, 3]);
 
-  Coord := TCoordinateNode.Create('', Faces.BaseUrl);
+  Coord := TCoordinateNode.Create(
+    Format('Coordinate_Slot_%s_Attachment_%s', [SlotName, Name]), // name it, as ROUTE may lead to it
+    Faces.BaseUrl);
   Rect[0] := Vector2(
     MapRange(TexRect[0][0], 0, 1, -Width / 2, Width / 2),
     MapRange(TexRect[0][1], 0, 1, -Height / 2, Height / 2));
@@ -340,7 +356,9 @@ begin
   Faces.Solid := false;
   Faces.SetIndex(Triangles);
 
-  Coord := TCoordinateNode.Create('', Faces.BaseUrl);
+  Coord := TCoordinateNode.Create(
+    Format('Coordinate_Slot_%s_Attachment_%s', [SlotName, Name]), // name it, as ROUTE may lead to it
+    Faces.BaseUrl);
   for I := 0 to Vertices.Count - 1 do
     Coord.FdPoint.Items.Add(Vector3(Vertices[I][0], Vertices[I][1], 0));
   Faces.Coord := Coord;
@@ -368,7 +386,7 @@ begin
       [SlotName, Name]));
 
   if TexRotated then
-    WritelnWarning('Spine', 'Atlas region is rotated, and is used for mesh attachment. This is not supported (texture will most likely be applied incorrectly), export atlas again with "Rotate" turned off.');
+    WritelnWarning('Spine ' + URIDisplay(BaseUrl), 'Atlas region is rotated, and is used for mesh attachment. This is not supported (texture will most likely be applied incorrectly), export atlas again with "Rotate" turned off.');
 
   TexCoordNode := TTextureCoordinateNode.Create('', Faces.BaseUrl);
   UVRangeX[0] := Min(TexCoord[0][0], TexCoord[2][0]);
@@ -569,19 +587,19 @@ begin
     WritelnWarning('Spine', 'TPathAttachment.BuildNodes multiple times on same node');
 
   Node := TTransformNode.Create(
-    Format('Slot_%s_Attachment_%s', [ToX3DName(SlotName), ToX3DName(Name)]),
+    Format('Slot_%s_Attachment_%s', [SlotName, Name]),
     BaseUrl);
 
   Shape := TShapeNode.Create('', BaseUrl);
   Node.AddChildren(Shape);
 
-  Shape.Material := TMaterialNode.Create(
-    Format('Material_Slot_%s_Attachment_%s', [ToX3DName(SlotName), ToX3DName(Name)]),
+  Material := TUnlitMaterialNode.Create(
+    Format('Material_Slot_%s_Attachment_%s', [SlotName, Name]),
     BaseUrl);
-  Shape.Material.ForcePureEmissive;
-  Shape.Material.EmissiveColor := WhiteRGB;
+  Material.EmissiveColor := WhiteRGB;
+  Shape.Material := Material;
+
   Shape.Render := false;
-  Material := Shape.Material;
 
   ControlPoints := TCoordinateNode.Create('', BaseUrl);
   { we ignore first and last Vertices, they are only handles outside of
@@ -595,6 +613,107 @@ begin
   Curve.Tessellation := ControlPoints.FdPoint.Count * 10; // by default, make quite detailed tesselation
   Curve.PiecewiseBezier;
   Shape.Geometry := Curve;
+end;
+
+{ TClippingAttachment ---------------------------------------------------------- }
+
+constructor TClippingAttachment.Create;
+begin
+  inherited;
+  Vertices := TVector2List.Create;
+end;
+
+destructor TClippingAttachment.Destroy;
+begin
+  FreeAndNil(Vertices);
+  // If you didn't call VisualizeClipPolygon in BuildNodes, Material node remains unused
+  FreeIfUnusedAndNil(Material);
+  inherited;
+end;
+
+procedure TClippingAttachment.Parse(const Json: TJSONObject; const Bones: TBoneList);
+var
+  VertexCount: Integer;
+begin
+  inherited;
+  VertexCount := Json.Get('vertexCount', 0);
+  ReadVector2List(Json, 'vertices', Vertices);
+  if Vertices.Count <> VertexCount then
+    WritelnWarning('Spine "clipping" attachment has unexpected "vertices" count: expected %d, has %d', [VertexCount, Vertices.Count]);
+end;
+
+procedure TClippingAttachment.BuildNodes(const BaseUrl: string;
+  const TextureLoader: TTextureLoader);
+
+  procedure VisualizeClipPolygon;
+  var
+    Coordinates: TCoordinateNode;
+    Faces: TIndexedFaceSetNode;
+    Shape: TShapeNode;
+    I: Integer;
+  begin
+    Shape := TShapeNode.Create('', BaseUrl);
+    Shape.Material := Material;
+    Node.AddChildren(Shape);
+
+    Faces := TIndexedFaceSetNode.Create('', BaseUrl);
+
+    Coordinates := TCoordinateNode.Create('', BaseUrl);
+    for I := 0 to Vertices.Count - 1 do
+    begin
+      Coordinates.FdPoint.Items.Add(Vector3(Vertices[I], 0));
+      Faces.FdCoordIndex.Items.Add(I);
+    end;
+
+    Faces.Coord := Coordinates;
+    Faces.Solid := false;
+    Faces.Convex := false;
+    Shape.Geometry := Faces;
+  end;
+
+  procedure AddClipPlane(const Point, NextPoint: TVector2);
+  var
+    D: Single;
+    Plane: TVector4;
+    ClipPlane: TClipPlaneNode;
+  begin
+    D := PointsDistance(Point, NextPoint);
+    Plane := Triangle3(
+      Vector3(Point, 0),
+      Vector3(NextPoint, 0),
+      Vector3((Point + NextPoint) / 2, D)
+    ).NormalizedPlane;
+    ClipPlane := TClipPlaneNode.Create('', BaseUrl);
+    ClipPlane.Plane := Plane;
+    Node.AddChildren(ClipPlane);
+  end;
+
+var
+  I: Integer;
+begin
+  if Node <> nil then
+    WritelnWarning('Spine', 'TClippingAttachment.BuildNodes multiple times on same node');
+
+  Node := TTransformNode.Create(
+    Format('Slot_%s_Attachment_%s', [SlotName, Name]),
+    BaseUrl);
+
+  Material := TUnlitMaterialNode.Create(
+    Format('Material_Slot_%s_Attachment_%s', [SlotName, Name]),
+    BaseUrl);
+  Material.EmissiveColor := WhiteRGB;
+
+  // debug
+  //VisualizeClipPolygon;
+
+  for I := 0 to Vertices.Count - 1 do
+    AddClipPlane(Vertices[I], Vertices[(I + 1) mod Vertices.Count]);
+
+  // TODO: This is cool, but ClipPlanes don't affect anything.
+  // To make this approach cool, we would need ClipPlane.global field.
+  // Alternatively, we could make a different approach using stencil buffer.
+
+  WritelnWarning('Spine', 'Spine "clipping" region type is not yet implemented');
 end;
 
 { TAttachmentList ------------------------------------------------------------ }

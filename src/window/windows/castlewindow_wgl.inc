@@ -32,7 +32,7 @@ private
 
 {$ifdef read_implementation}
 
-procedure TCastleWindowCustom.ContextCreateEnd(WndPtr: HWND);
+procedure TCastleWindowBase.ContextCreateEnd(WndPtr: HWND);
 
   { Both SetPixelFormat* set pixel format (required context capabilities)
     of Windows H_Dc device context. They try to set it, and eventually raise some
@@ -222,8 +222,7 @@ procedure TCastleWindowCustom.ContextCreateEnd(WndPtr: HWND);
              my acquired WglExtensions there. }
 
         WglExtensions := wglGetExtensionsStringARB(Temp_H_Dc);
-        if Log then
-          WritelnLog('wgl', 'wgl extensions: ' + WglExtensions);
+        WritelnLog('wgl', 'wgl extensions: ' + WglExtensions);
 
         if Load_WGL_ARB_pixel_format then
         begin
@@ -259,8 +258,7 @@ procedure TCastleWindowCustom.ContextCreateEnd(WndPtr: HWND);
                 VisualAttr.AddRange([
                   WGL_SAMPLE_BUFFERS_ARB, 1,
                   WGL_SAMPLES_ARB, MultiSampling ]);
-                if Log then
-                  WritelnLog('MultiSampling', 'WGL_ARB_multisample supported, using multisampling');
+                WritelnLog('MultiSampling', 'WGL_ARB_multisample supported, using multisampling');
               end else
                 raise EGLContextNotPossible.CreateFmt('Multisampling (%d samples) ' +
                   'requested, but WGL_ARB_multisample not supported',
@@ -296,14 +294,12 @@ procedure TCastleWindowCustom.ContextCreateEnd(WndPtr: HWND);
               [ RequestedBufferAttributes ]);
         end else
         begin
-          if Log then
-            WritelnLog('wgl', 'WGL_ARB_pixel_format not available, using classic ChoosePixelFormat');
+          WritelnLog('wgl', 'WGL_ARB_pixel_format not available, using classic ChoosePixelFormat');
           SetPixelFormat_ClassicChoose;
         end;
       end else
       begin
-        if Log then
-          WritelnLog('wgl', 'wglGetExtensionsStringARB not available, using classic ChoosePixelFormat');
+        WritelnLog('wgl', 'wglGetExtensionsStringARB not available, using classic ChoosePixelFormat');
         SetPixelFormat_ClassicChoose;
       end;
     finally DestroyTemporaryWindow end;
@@ -344,7 +340,7 @@ begin
     OSCheck(wglShareLists(Application.OpenWindows[0].h_GLRc, h_GLRc), 'wglShareLists');
 end;
 
-procedure TCastleWindowCustom.ContextDestroy;
+procedure TCastleWindowBase.ContextDestroy;
 begin
   if h_GLRc <> 0 then
   begin
@@ -356,13 +352,13 @@ begin
   end;
 end;
 
-procedure TCastleWindowCustom.BackendMakeCurrent;
+procedure TCastleWindowBase.BackendMakeCurrent;
 begin
   Assert(not Closed);
   OSCheck( wglMakeCurrent(h_Dc, h_GLRc), 'wglMakeCurrent');
 end;
 
-procedure TCastleWindowCustom.SwapBuffers;
+procedure TCastleWindowBase.SwapBuffers;
 begin
   Windows.SwapBuffers(h_Dc);
 end;

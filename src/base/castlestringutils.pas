@@ -494,19 +494,31 @@ type
       only important that @italic(some whitespace in Format) correspond
       to @italic(some whitespace in Data).)
 
-    @item(@code(%d) in Format means an integer value (possibly signed) in Data.
+    @item(@code(%d) in Format means an Integer value in Data.
       Args should have a pointer to Integer variable on the appropriate
-      position.)
+      position.
+
+      Warning: DeFormat cannot detect the type of your arguments,
+      or check their validity. Make sure in Args you use a pointer to an Integer
+      variable (32-bit, like in FPC ObjFpc or Delphi mode),
+      not e.g. ShortInt or Byte.
+    )
 
     @item(@code(%f) in Format means a float value (possibly signed, possibly
       with a dot) in Data. Args should have a pointer to Float variable
-      on the appropriate position.)
+      on the appropriate position.
+
+      Warning: DeFormat cannot detect the type of your arguments,
+      or check their validity. Make sure in Args you use a pointer to an Float
+      variable (as defined in Math unit),
+      not e.g. Single or Double or Extended.
+    )
 
     @item(@code(%.single.), @code(%.double.), @code(%.extended.) are like
-      @code(%f), but they
-      specify appropriate variable type in Args.
-      Since DeFormat can't check the type validity of your pointers,
-      always be sure to pass in Args pointers to appropriate types.)
+      @code(%f), but they specify appropriate variable type in Args.)
+
+    @item(@code(%.integer.), @code(%.cardinal.), are like
+      @code(%d), but they specify appropriate variable type in Args.)
 
     @item(@code(%s) in Format means a string (will end on the first whitespace)
       in Data. Args should contain a pointer to an AnsiString
@@ -778,7 +790,7 @@ function SPercentReplace(const InitialFormat: string;
   had to be broken anyway (after Castle Game Engine 4.0.1, you have to fix
   URLs to image sequences anyway, as @code(%4d) must mean letter "M").
 
-  See http://castle-engine.sourceforge.net/x3d_extensions.php#section_ext_movie_from_image_sequence
+  See https://castle-engine.io/x3d_extensions.php#section_ext_movie_from_image_sequence
   for an example when this is useful.
 
   @groupBegin }
@@ -788,6 +800,12 @@ function FormatNameCounter(const NamePattern: string;
 function FormatNameCounter(const NamePattern: string;
   const Index: Integer; const AllowOldPercentSyntax: boolean): string; overload;
 { @groupEnd }
+
+{ Does this NamePattern contain @counter in a format understood
+  by @link(FormatNameCounter). When @true, you can be sure @link(FormatNameCounter)
+  actually changes the argument by replacing some @counter. }
+function HasNameCounter(const NamePattern: string;
+  const AllowOldPercentSyntax: Boolean = false): Boolean;
 
 { conversions ------------------------------------------------------------ }
 
@@ -935,6 +953,11 @@ type
     character, character position.) }
 procedure SCheckChars(const S: string; const ValidChars: TSetOfChars;
   const RaiseExceptionOnError: boolean = true);
+
+{ Remove one newline from the end of the string, if any. }
+function TrimEndingNewline(const S: String): String;
+
+function SizeToStr(const Value: QWord): String;
 
 const
   { }
@@ -1676,7 +1699,7 @@ var datapos, formpos: integer;
    result := StrToFloat(CopyPos(data, dataposstart, datapos-1));
   end;
 
-  function ReadIntegerData: Integer;
+  function ReadInt64Data: Int64;
   var dataposstart: integer;
   begin
    {pierwszy znak integera moze byc + lub -. Potem musza byc same cyfry.}
@@ -1732,6 +1755,8 @@ var datapos, formpos: integer;
       raise EDeformatError.Create('Unexpected end of format : "'+format+'"');
   end;
 
+var
+  TypeSpecifier: String;
 begin
  datapos := 1;
  formpos := 1;
@@ -1793,7 +1818,7 @@ begin
           Inc(result);
          end;
      'd':begin
-          PInteger(args[result])^:=ReadIntegerData;
+          PInteger(args[result])^:=ReadInt64Data;
           Inc(formpos);
           Inc(result);
          end;
@@ -1804,10 +1829,15 @@ begin
          end;
      '.':begin
           Inc(formpos);
-          case ArrayPosStr(ReadTypeSpecifier, ['single', 'double', 'extended']) of
+          TypeSpecifier := ReadTypeSpecifier;
+          case ArrayPosStr(TypeSpecifier,
+            ['single', 'double', 'extended', 'integer', 'cardinal']) of
            0: PSingle(args[result])^:=ReadExtendedData;
            1: PDouble(args[result])^:=ReadExtendedData;
            2: PExtended(args[result])^:=ReadExtendedData;
+           3: PInteger(args[result])^:=ReadInt64Data;
+           4: PCardinal(args[result])^:=ReadInt64Data;
+           else raise EDeformatError.CreateFmt('Incorrect type specifier "%s"', [TypeSpecifier]);
           end;
           Inc(result);
          end;
@@ -2168,6 +2198,31 @@ begin
   Inc(ReplacementsDone);
 end;
 
+function HasNameCounter(const NamePattern: string;
+  const AllowOldPercentSyntax: Boolean): Boolean;
+var
+  ReplacementsDone: Cardinal;
+  S: String;
+begin
+  { First check by searching for @counter,
+    to eliminate 99% of practical URL cases that will not have @counter.
+    Later check by actually doing FormatNameCounter,
+    in case the @counter is not followed by proper sequence "(123)".
+    This way if HasNameCounter returns @true, we can be sure that
+    FormatNameCounter actually does something, i.e. changes NamePattern,
+    otherwise e.g. LoadNode could loop. }
+  if Pos('@counter', NamePattern) <> 0 then
+  begin
+    S := FormatNameCounter(NamePattern, 0, AllowOldPercentSyntax, ReplacementsDone);
+    if ReplacementsDone <> 0 then
+    begin
+      Assert(NamePattern <> S);
+      Exit(true);
+    end;
+  end;
+  Result := false;
+end;
+
 function FormatNameCounter(const NamePattern: string;
   const Index: Integer; const AllowOldPercentSyntax: boolean;
   out ReplacementsDone: Cardinal): string;
@@ -2509,6 +2564,34 @@ begin
     if not (C in ValidChars) then
       ReportInvalid;
   end;
+end;
+
+function TrimEndingNewline(const S: String): String;
+begin
+  if IsSuffix(#13#10, S, false) then
+    Result := Copy(S, 1, Length(S) - 2)
+  else
+  if IsSuffix(#10, S, false) then
+    Result := Copy(S, 1, Length(S) - 1)
+  else
+    Result := S;
+end;
+
+function SizeToStr(const Value: QWord): String;
+begin
+  if Value >= 1024 * 1024 * 1024 then
+    Result := FormatDot('%.2f', [Value / (1024 * 1024 * 1024)]) + ' GB'
+  else
+  if Value >= 1024 * 1024 then
+    Result := FormatDot('%.2f', [Value / (1024 * 1024)]) + ' MB'
+  else
+  if Value >= 1024 then
+    Result := FormatDot('%.2f', [Value / 1024]) + ' KB'
+  else
+    Result := FormatDot('%d', [Value]) + ' bytes';
+
+  // too verbose
+  //Result += Format(' (%d bytes)', [Value]);
 end;
 
 end.

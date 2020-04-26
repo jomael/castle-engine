@@ -1,3 +1,4 @@
+{%MainUnit castlecontrols.pas}
 {
   Copyright 2010-2018 Michalis Kamburelis.
 
@@ -16,36 +17,46 @@
 {$ifdef read_interface}
 
   { Label with possibly multiline text, in an optional box. }
-  TCastleLabel = class(TUIControlFont)
+  TCastleLabel = class(TCastleUserInterfaceFont)
   strict private
     FText: TStrings;
-    FPaddingHorizontal, FPaddingVertical, FPadding: Integer;
-    FLineSpacing: Integer;
+    FPaddingHorizontal, FPaddingVertical, FPadding: Single;
+    FLineSpacing: Single;
     FColor: TCastleColor;
     FHtml: boolean;
     FFrame: boolean;
     FFrameColor: TCastleColor;
-    FMaxWidth: Integer;
+    FMaxWidth: Single;
     FAlignment: THorizontalPosition;
     FVerticalAlignment: TVerticalPosition;
     FAutoSize: boolean;
-    FWidth, FHeight: Cardinal;
-    FFullSize: boolean;
     FMaxDisplayChars: Integer;
+    CachedRichText: TRichText;
+    FCaptionTranslate: Boolean;
     function GetTextToRender: TRichText;
-    procedure SetWidth(const Value: Cardinal);
-    procedure SetHeight(const Value: Cardinal);
-    procedure SetFullSize(const Value: boolean);
     procedure SetAutoSize(const Value: boolean);
     function GetCaption: string;
     procedure SetCaption(const Value: string);
     procedure SetAlignment(const Value: THorizontalPosition);
     procedure SetVerticalAlignment(const Value: TVerticalPosition);
     procedure SetMaxDisplayChars(const Value: Integer);
+    procedure SetMaxWidth(const Value: Single);
+    procedure TextChange(Sender: TObject);
+    procedure SetText(const Value: TStrings);
+    procedure SetPaddingHorizontal(const Value: Single);
+    procedure SetPaddingVertical(const Value: Single);
+    procedure SetPadding(const Value: Single);
+    procedure SetHtml(const Value: Boolean);
   private
     { For internal use by tooltip rendering. In normal circumstances,
       leave this at tiLabel. }
     ImageType: TThemeImage;
+  protected
+    procedure PreferredSize(var PreferredWidth, PreferredHeight: Single); override;
+    function GetInternalText: String; override;
+    procedure SetInternalText(const Value: String); override;
+    procedure UIScaleChanged; override;
+    procedure TranslateProperties(const TranslatePropertyEvent: TTranslatePropertyEvent); override;
   public
     const
       DefaultLineSpacing = 2;
@@ -53,9 +64,12 @@
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     procedure Render; override;
-    function Rect: TRectangle; override;
+    procedure EditorAllowResize(
+      out ResizeWidth, ResizeHeight: Boolean; out Reason: String); override;
+    function PropertySection(const PropertyName: String): TPropertySection; override;
+    procedure FontChanged; override;
 
-    { Text color. By default it's white. }
+    { Text color. By default it's opaque black. }
     property Color: TCastleColor read FColor write FColor;
 
     { Color tint of the background image, see @link(Frame). By default white. }
@@ -63,10 +77,6 @@
 
     function DisplayChars: Cardinal;
   published
-    property Width: Cardinal read FWidth write SetWidth default 0;
-    property Height: Cardinal read FHeight write SetHeight default 0;
-    property FullSize: boolean read FFullSize write SetFullSize default false;
-
     { Should we automatically adjust size to the text size.
       The size of the label determines where does it display the @link(Frame),
       where does it catch events, to what width is it aligned (see @link(Alignment))
@@ -76,8 +86,9 @@
       @link(Width), @link(Height), @link(FullSize) values are ignored. }
     property AutoSize: boolean read FAutoSize write SetAutoSize default true;
 
-    { Caption displayed on the label, each line as a string. }
-    property Text: TStrings read FText;
+    { Caption displayed on the label, each line as a string.
+      Setting this property merely copies the contents using TStrings.Assign. }
+    property Text: TStrings read FText write SetText;
 
     { Caption displayed on the label.
       This is just a shortcut to get/set @link(Text) as a single string.
@@ -101,17 +112,17 @@
       Total horizontal padding is the sum @code(PaddingHorizontal + Padding),
       total vertical padding is the sum @code(PaddingVertical + Padding).
       @groupBegin }
-    property PaddingHorizontal: Integer
-      read FPaddingHorizontal write FPaddingHorizontal default 0;
-    property PaddingVertical: Integer
-      read FPaddingVertical write FPaddingVertical default 0;
-    property Padding: Integer
-      read FPadding write FPadding default 0;
+    property PaddingHorizontal: Single
+      read FPaddingHorizontal write SetPaddingHorizontal default 0;
+    property PaddingVertical: Single
+      read FPaddingVertical write SetPaddingVertical default 0;
+    property Padding: Single
+      read FPadding write SetPadding default 0;
     { @groupEnd }
 
     { Extra spacing between lines.
       May be negative to squeeze lines tighter together. }
-    property LineSpacing: Integer read FLineSpacing write FLineSpacing default DefaultLineSpacing;
+    property LineSpacing: Single read FLineSpacing write FLineSpacing default DefaultLineSpacing;
 
     { Does the text use HTML markup.
       This allows to easily change colors or use bold, italic text.
@@ -124,9 +135,9 @@
       you need to set the font to be TFontFamily with bold/italic variants.
       See the example mentioned above, examples/fonts/html_text.lpr,
       for a code how to do it. }
-    property Html: boolean read FHtml write FHtml default false;
+    property Html: boolean read FHtml write SetHtml default false;
 
-    property Tags: boolean read FHtml write FHtml stored false default false;
+    property Tags: boolean read FHtml write SetHtml stored false default false;
       deprecated 'use Html instead';
 
     { Draw frame around the text. Frame uses theme image tiLabel,
@@ -136,7 +147,7 @@
     { If non-zero, limit the width of resulting label.
       The text will be broken in the middle of lines, to make it fit
       (together with @link(PaddingHorizontal)) inside MaxWidth. }
-    property MaxWidth: Integer read FMaxWidth write FMaxWidth default 0;
+    property MaxWidth: Single read FMaxWidth write SetMaxWidth default 0;
 
     { Horizontal alignment of the text. }
     property Alignment: THorizontalPosition
@@ -160,6 +171,15 @@
       Use DisplayChars as the maximum sensible value for this. }
     property MaxDisplayChars: Integer
       read FMaxDisplayChars write SetMaxDisplayChars default -1;
+
+    { Should the @link(Caption) be localized (translated into other languages).
+      Determines if the property is enumerated by @link(TCastleComponent.TranslateProperties),
+      which affects the rest of localization routines. }
+    property CaptionTranslate: Boolean read FCaptionTranslate write FCaptionTranslate default true;
+
+  {$define read_interface_class}
+  {$I auto_generated_persistent_vectors/tcastlelabel_persistent_vectors.inc}
+  {$undef read_interface_class}
   end;
 
 {$endif read_interface}
@@ -171,46 +191,75 @@
 constructor TCastleLabel.Create(AOwner: TComponent);
 begin
   inherited;
+
   FText := TStringList.Create;
-  FColor := White;
+  TStringList(FText).OnChange := {$ifdef CASTLE_OBJFPC}@{$endif} TextChange;
+  {$warnings off}
+  if Theme.DefaultLabelWhite then
+  {$warnings on}
+    FColor := White
+  else
+    FColor := Black;
   FFrame := false;
   FFrameColor := White;
   FLineSpacing := DefaultLineSpacing;
   FAutoSize := true;
   ImageType := tiLabel;
   FMaxDisplayChars := -1;
+  FCaptionTranslate := true;
+
+  {$define read_implementation_constructor}
+  {$I auto_generated_persistent_vectors/tcastlelabel_persistent_vectors.inc}
+  {$undef read_implementation_constructor}
 end;
 
 destructor TCastleLabel.Destroy;
 begin
+  {$define read_implementation_destructor}
+  {$I auto_generated_persistent_vectors/tcastlelabel_persistent_vectors.inc}
+  {$undef read_implementation_destructor}
+
   FreeAndNil(FText);
+  FreeAndNil(CachedRichText);
+
   inherited;
 end;
 
 function TCastleLabel.GetTextToRender: TRichText;
 var
-  PaddingHorizontalScaled, MaxWidthScaled, WrapWidth: Integer;
+  PaddingHorizontalScaled, MaxWidthScaled, WrapWidth: Single;
   US: Single;
 begin
-  Result := TRichText.Create(Font, Text, Html);
-  if MaxWidth <> 0 then
+  if CachedRichText <> nil then
+    { Since GetTextToRender is called very often, we want it to usually return
+      instantly fast. }
+    Result := CachedRichText
+  else
   begin
-    US := UIScale;
-    PaddingHorizontalScaled := Round(US * PaddingHorizontal);
-    MaxWidthScaled := Round(US * MaxWidth);
-    WrapWidth := MaxWidthScaled - 2 * PaddingHorizontalScaled;
-    if WrapWidth > 0 then
-      Result.Wrap(WrapWidth);
+    Result := TRichText.Create(Font, Text, Html);
+    if MaxWidth <> 0 then
+    begin
+      US := UIScale;
+      PaddingHorizontalScaled := US * (PaddingHorizontal + Padding);
+      MaxWidthScaled := US * MaxWidth;
+      WrapWidth := MaxWidthScaled - 2 * PaddingHorizontalScaled;
+      if WrapWidth > 0 then
+        Result.Wrap(WrapWidth);
+    end;
+    CachedRichText := Result;
   end;
 end;
 
-function TCastleLabel.Rect: TRectangle;
+procedure TCastleLabel.PreferredSize(var PreferredWidth, PreferredHeight: Single);
 var
   TextToRender: TRichText;
-  TextToRenderWidth, TextToRenderCount: Cardinal;
-  PaddingHorizontalScaled, PaddingVerticalScaled, LineSpacingScaled: Integer;
+  TextToRenderWidth: Single;
+  TextToRenderCount: Cardinal;
+  PaddingHorizontalScaled, PaddingVerticalScaled, LineSpacingScaled: Single;
   US: Single;
 begin
+  inherited;
+
   if AutoSize then
   begin
     if (not Html) and (MaxWidth = 0) then
@@ -221,63 +270,70 @@ begin
     end else
     begin
       TextToRender := GetTextToRender;
-      try
-        TextToRenderWidth := TextToRender.Width;
-        TextToRenderCount := TextToRender.Count;
-      finally FreeAndNil(TextToRender) end;
+      TextToRenderWidth := TextToRender.Width;
+      TextToRenderCount := TextToRender.Count;
     end;
 
     US := UIScale;
-    PaddingHorizontalScaled := Round(US * (PaddingHorizontal + Padding));
-    PaddingVerticalScaled := Round(US * (PaddingVertical + Padding));
-    LineSpacingScaled := Round(US * LineSpacing);
-    Result := Rectangle(
-      LeftBottomScaled,
-      TextToRenderWidth + 2 * PaddingHorizontalScaled,
-      (Font.RowHeight + LineSpacingScaled) * TextToRenderCount +
-        2 * PaddingVerticalScaled + Font.Descend);
-  end else
-  if FullSize then
-    Result := ParentRect else
+    PaddingHorizontalScaled := US * (PaddingHorizontal + Padding);
+    PaddingVerticalScaled := US * (PaddingVertical + Padding);
+    LineSpacingScaled := US * LineSpacing;
+
+    PreferredWidth := TextToRenderWidth + 2 * PaddingHorizontalScaled;
+    PreferredHeight :=
+      Font.RowHeight * TextToRenderCount +
+      LineSpacingScaled * (TextToRenderCount - 1) +
+      2 * PaddingVerticalScaled +
+      Font.Descend;
+  end;
+end;
+
+procedure TCastleLabel.EditorAllowResize(
+  out ResizeWidth, ResizeHeight: Boolean; out Reason: String);
+begin
+  inherited;
+  if AutoSize then
   begin
-    Result := Rectangle(Left, Bottom, Width, Height);
-    Result := Result.ScaleAround0(UIScale);
+    ResizeWidth := false;
+    ResizeHeight := false;
+    Reason := SAppendPart(Reason, NL, 'Turn off "TCastleLabel.AutoSize" to change size.');
   end;
 end;
 
 procedure TCastleLabel.Render;
 var
   TextToRender: TRichText;
-  LineSpacingScaled: Integer;
+  LineSpacingScaled: Single;
 
-  function TextHeight: Integer;
+  function TextHeight: Single;
   begin
     Result := TextToRender.Count * (Font.RowHeight + LineSpacingScaled);
   end;
 
 var
-  SR: TRectangle;
-  TextX, TextBottom, PaddingHorizontalScaled,
-    PaddingVerticalScaled: Integer;
+  SR: TFloatRectangle;
+  TextX, TextBottom, PaddingHorizontalScaled, PaddingVerticalScaled: Single;
   US: Single;
 begin
   inherited;
   if Text.Count = 0 then Exit; // early exit in case of easy, fast case
 
-  SR := ScreenRect;
+  SR := RenderRect;
   US := UIScale;
-  PaddingHorizontalScaled := Round(US * (PaddingHorizontal + Padding));
-  PaddingVerticalScaled := Round(US * (PaddingVertical + Padding));
-  LineSpacingScaled := Round(US * LineSpacing);
+  PaddingHorizontalScaled := US * (PaddingHorizontal + Padding);
+  PaddingVerticalScaled := US * (PaddingVertical + Padding);
+  LineSpacingScaled := US * LineSpacing;
   if Frame then
     Theme.Draw(SR, ImageType, UIScale, FrameColor);
 
   { calculate TextX }
   case Alignment of
     hpLeft  : TextX := SR.Left + PaddingHorizontalScaled;
-    hpMiddle: TextX := (SR.Left + SR.Right) div 2;
+    hpMiddle: TextX := (SR.Left + SR.Right) / 2;
     hpRight : TextX := SR.Right - PaddingHorizontalScaled;
+    {$ifndef COMPILER_CASE_ANALYSIS}
     else raise EInternalError.Create('TCastleLabel.Render: Alignment?');
+    {$endif}
   end;
 
   { calculate TextBottom }
@@ -292,44 +348,17 @@ begin
   end else
   begin
     TextToRender := GetTextToRender;
-    try
-      { fix TextBottom, in case of non-trivial VerticalAlignment }
-      if not AutoSize then
-        case VerticalAlignment of
-          vpMiddle: TextBottom := SR.Bottom + (SR.Height - TextHeight) div 2;
-          vpTop   : TextBottom := SR.Top - PaddingVerticalScaled - Font.Descend - TextHeight;
-        end;
 
-      TextToRender.Print(TextX, TextBottom, Color, LineSpacingScaled, Alignment,
-        MaxDisplayChars);
-    finally FreeAndNil(TextToRender) end;
-  end;
-end;
+    { fix TextBottom, in case of non-trivial VerticalAlignment }
+    if not AutoSize then
+      case VerticalAlignment of
+        vpMiddle: TextBottom := SR.Bottom + (SR.Height - TextHeight) / 2;
+        vpTop   : TextBottom := SR.Top - PaddingVerticalScaled - Font.Descend - TextHeight;
+        else ;
+      end;
 
-procedure TCastleLabel.SetWidth(const Value: Cardinal);
-begin
-  if FWidth <> Value then
-  begin
-    FWidth := Value;
-    VisibleChange(true);
-  end;
-end;
-
-procedure TCastleLabel.SetHeight(const Value: Cardinal);
-begin
-  if FHeight <> Value then
-  begin
-    FHeight := Value;
-    VisibleChange(true);
-  end;
-end;
-
-procedure TCastleLabel.SetFullSize(const Value: boolean);
-begin
-  if FFullSize <> Value then
-  begin
-    FFullSize := Value;
-    VisibleChange(true);
+    TextToRender.Print(TextX, TextBottom, Color, LineSpacingScaled, Alignment,
+      MaxDisplayChars);
   end;
 end;
 
@@ -338,13 +367,13 @@ begin
   if FAutoSize <> Value then
   begin
     FAutoSize := Value;
-    VisibleChange(true);
+    VisibleChange([chRectangle]);
   end;
 end;
 
 function TCastleLabel.GetCaption: string;
 begin
-  Result := Text.Text;
+  Result := TrimEndingNewline(Text.Text);
 end;
 
 procedure TCastleLabel.SetCaption(const Value: string);
@@ -357,7 +386,7 @@ begin
   if FAlignment <> Value then
   begin
     FAlignment := Value;
-    VisibleChange;
+    VisibleChange([chRender]);
   end;
 end;
 
@@ -366,7 +395,7 @@ begin
   if FVerticalAlignment <> Value then
   begin
     FVerticalAlignment := Value;
-    VisibleChange;
+    VisibleChange([chRender]);
   end;
 end;
 
@@ -375,7 +404,18 @@ begin
   if FMaxDisplayChars <> Value then
   begin
     FMaxDisplayChars := Value;
-    VisibleChange;
+    VisibleChange([chRectangle]);
+  end;
+end;
+
+procedure TCastleLabel.SetMaxWidth(const Value: Single);
+begin
+  if FMaxWidth <> Value then
+  begin
+    FMaxWidth := Value;
+    // invalidate CachedRichText, as it depends on this property
+    FreeAndNil(CachedRichText);
+    VisibleChange([chRectangle]);
   end;
 end;
 
@@ -386,9 +426,115 @@ begin
   if Text.Count = 0 then Exit(0); // early exit in case of easy, fast case
 
   TextToRender := GetTextToRender;
-  try
-    Result := TextToRender.DisplayChars;
-  finally FreeAndNil(TextToRender) end;
+  Result := TextToRender.DisplayChars;
 end;
+
+procedure TCastleLabel.TextChange(Sender: TObject);
+begin
+  VisibleChange([chRectangle]);
+  // invalidate CachedRichText, as it depends on Text value
+  FreeAndNil(CachedRichText);
+end;
+
+procedure TCastleLabel.SetText(const Value: TStrings);
+begin
+  FText.Assign(Value);
+end;
+
+function TCastleLabel.GetInternalText: String;
+begin
+  Result := Caption;
+end;
+
+procedure TCastleLabel.SetInternalText(const Value: String);
+begin
+  Caption := Value;
+end;
+
+function TCastleLabel.PropertySection(const PropertyName: String): TPropertySection;
+begin
+  case PropertyName of
+    // Note that Caption expresses the same thing as Text, but easier to access
+    'Text', 'Caption', 'ColorPersistent':
+      Result := psBasic;
+    'AutoSize':
+      Result := psLayout;
+    else
+      Result := inherited PropertySection(PropertyName);
+  end;
+end;
+
+procedure TCastleLabel.SetPaddingHorizontal(const Value: Single);
+begin
+  if FPaddingHorizontal <> Value then
+  begin
+    FPaddingHorizontal := Value;
+    // invalidate CachedRichText, as it depends on this property
+    FreeAndNil(CachedRichText);
+    VisibleChange([chRender]);
+  end;
+end;
+
+procedure TCastleLabel.SetPaddingVertical(const Value: Single);
+begin
+  if FPaddingVertical <> Value then
+  begin
+    FPaddingVertical := Value;
+    VisibleChange([chRender]);
+  end;
+end;
+
+procedure TCastleLabel.SetPadding(const Value: Single);
+begin
+  if FPadding <> Value then
+  begin
+    FPadding := Value;
+    // invalidate CachedRichText, as it depends on this property
+    FreeAndNil(CachedRichText);
+    VisibleChange([chRender]);
+  end;
+end;
+
+procedure TCastleLabel.SetHtml(const Value: Boolean);
+begin
+  if FHtml <> Value then
+  begin
+    FHtml := Value;
+    // invalidate CachedRichText, as it depends on this property
+    FreeAndNil(CachedRichText);
+    VisibleChange([chRender]);
+  end;
+end;
+
+procedure TCastleLabel.UIScaleChanged;
+begin
+  inherited;
+  // invalidate CachedRichText, as it depends on UIScale
+  FreeAndNil(CachedRichText);
+end;
+
+procedure TCastleLabel.FontChanged;
+begin
+  inherited;
+  // invalidate CachedRichText, as it depends on Font
+  FreeAndNil(CachedRichText);
+end;
+
+procedure TCastleLabel.TranslateProperties(
+  const TranslatePropertyEvent: TTranslatePropertyEvent);
+var
+  S: String;
+begin
+  if CaptionTranslate and (Caption <> '') then
+  begin
+    S := Caption;
+    TranslatePropertyEvent(Self, 'Caption', S);
+    Caption := S;
+  end;
+end;
+
+{$define read_implementation_methods}
+{$I auto_generated_persistent_vectors/tcastlelabel_persistent_vectors.inc}
+{$undef read_implementation_methods}
 
 {$endif read_implementation}

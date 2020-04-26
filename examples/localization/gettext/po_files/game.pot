@@ -1,0 +1,8 @@
+#: game:text3d
+msgid "I am 3D Text"
+msgstr ""
+
+#: game:messagetext
+msgid "I am a message!"
+msgstr ""
+

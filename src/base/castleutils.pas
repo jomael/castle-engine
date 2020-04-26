@@ -41,14 +41,6 @@
   Initialization of this unit does some generally-useful things:
 
   @unorderedList(
-    @item(Calls @code(Randomize), to initialize random sequence of the standard
-      @code(Random).
-
-      Because the initial value of the random seed if undefined anyway.
-      And forgetting to call @code(Randomize) can easily lead to accidentally
-      getting the same random sequence from multiple runs of the program.
-    )
-
     @item(Sets @code(DecimalSeparator) to '.' (dot).
 
       Bacause Delphi and FPC define DecimalSeparator
@@ -68,9 +60,11 @@
       Maybe we had good reasons to do this,
       but in the long run it may be unexpected to new developers
       that the engine overrides a global DecimalSeparator.
-      We will eventually remove this feature in the future.)
-      Of course, our functions will continue to return the values
-      with "dot" inside, regardless of the DecimalSeparator.
+      We will remove this feature in the future.)
+
+      Use @link(FormatDot) to reliably output floating point values
+      with "dot" as a decimal separator.
+      Similarly, use TryStrToFloatDot to read string with dot to a float.
     )
 
     @item(Makes AnsiString (which is usually just called "string")
@@ -82,8 +76,8 @@
       throughout your code, and everything will just work.
 
       This way your applications will behave the same, whether they use LCL
-      (which happens if you use TCastleControl on Lazarus form) or not
-      (which happens if you use TCastleWindow).
+      (which happens if you use TCastleControlBase on Lazarus form) or not
+      (which happens if you use TCastleWindowBase).
 
       This is also consistent with what our TCastleFont expects (it's
       rendering assumes UTF-8 encoding of strings) and what some of our
@@ -93,8 +87,6 @@
 }
 
 unit CastleUtils;
-
-{$I castleconf.inc}
 
 {$ifdef VER3_0}
   { Almost all CGE code uses ObjFpc mode under FPC,
@@ -117,8 +109,11 @@ unit CastleUtils;
     https://bugs.freepascal.org/view.php?id=30227
   }
   {$mode delphi}
-  {$undef CASTLE_OBJFPC}
+  {$define CASTLE_CONF_DO_NOT_OVERRIDE_MODE}
 {$endif}
+
+{$I castleconf.inc}
+{$undef CASTLE_CONF_DO_NOT_OVERRIDE_MODE}
 
 interface
 
@@ -133,6 +128,7 @@ uses {$ifdef MSWINDOWS} Windows, {$ifndef FPC} ShlObj, {$endif} {$endif}
 {$I castleutils_types.inc}
 {$I castleutils_delphi_compatibility.inc}
 {$I castleutils_basic_algorithms.inc}
+{$I castleutils_platform.inc}
 {$I castleutils_miscella.inc}
 {$I castleutils_struct_list.inc}
 {$I castleutils_primitive_lists.inc}
@@ -157,6 +153,7 @@ implementation
 {$I castleutils_types.inc}
 {$I castleutils_delphi_compatibility.inc}
 {$I castleutils_basic_algorithms.inc}
+{$I castleutils_platform.inc}
 {$I castleutils_miscella.inc}
 {$I castleutils_struct_list.inc}
 {$I castleutils_primitive_lists.inc}
@@ -180,8 +177,6 @@ implementation
 
 initialization
   InitializationOSSpecific;
-
-  Randomize; { required by e.g. GetTempFname }
 
   LocaleDecimalSeparator :=
     {$ifdef FPC} DefaultFormatSettings {$else} FormatSettings {$endif}.DecimalSeparator;

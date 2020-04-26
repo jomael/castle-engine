@@ -1,3 +1,4 @@
+{%MainUnit castlecontrols.pas}
 {
   Copyright 2017-2018 Michalis Kamburelis and Jan Adamec.
 
@@ -16,35 +17,39 @@
 {$ifdef read_interface}
 
   { Touch-friendly checkbox control with representing on/off state. }
-  TCastleSwitchControl = class(TUIControl)
+  TCastleSwitchControl = class(TCastleUserInterface)
   strict private
-    FIsOn: boolean;
+    FChecked: boolean;
     FEnabled: boolean;
     FPressed: boolean;
-    FWidth: Cardinal;
-    FHeight: Cardinal;
     FOnChange: TNotifyEvent;
 
-    procedure SetIsOn(const Value: boolean);
+    procedure SetChecked(const Value: boolean);
     procedure SetEnabled(const Value: boolean);
-
   public
+    const
+      DefaultSwitchControlWidth = 50;
+      DefaultSwitchControlHeight = 28;
+
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-
     procedure Render; override;
-    function Rect: TRectangle; override;
     function Press(const Event: TInputPressRelease): boolean; override;
     function Release(const Event: TInputPressRelease): boolean; override;
+    function PropertySection(const PropertyName: String): TPropertySection; override;
 
+    property IsOn: boolean read FChecked write SetChecked default false;
+      deprecated 'use Checked instead, consistent with LCL TCheckBox.Checked';
   published
     { Switch state. }
-    property IsOn: boolean read FIsOn write SetIsOn default false;
+    property Checked: boolean read FChecked write SetChecked default false;
     property Enabled: boolean read FEnabled write SetEnabled default true;
-    property Width: Cardinal read FWidth;
-    property Height: Cardinal read FHeight;
-    { Event sent when switch value changed. }
+    { Event sent when @link(Checked) value was changed by a user click.
+      Note that this is @italic(not) called when you change @link(Checked)
+      property programmatically by setting the property. }
     property OnChange: TNotifyEvent read FOnChange write FOnChange;
+    property Width default DefaultSwitchControlWidth;
+    property Height default DefaultSwitchControlHeight;
   end;
 
 {$endif read_interface}
@@ -56,12 +61,12 @@
 constructor TCastleSwitchControl.Create(AOwner: TComponent);
 begin
   inherited;
-  FIsOn := false;
+  FChecked := false;
   FEnabled := true;
   FPressed := false;
   FOnChange := nil;
-  FWidth := 50;
-  FHeight := 28;
+  Width := DefaultSwitchControlWidth;
+  Height := DefaultSwitchControlHeight;
 end;
 
 destructor TCastleSwitchControl.Destroy;
@@ -71,28 +76,25 @@ end;
 
 procedure TCastleSwitchControl.Render;
 var
-  BaseRect, BackRect, HandleRect: TRectangle;
+  BaseRect, BackRect, HandleRect: TFloatRectangle;
   HandleImage: TThemeImage;
 begin
   inherited;
 
-  BaseRect := ScreenRect;
+  BaseRect := RenderRect;
 
   // background
   BackRect := BaseRect;
-  BackRect.Height := Round(BaseRect.Height * 0.5);  //*0.4; //BaseRect.Height div 2;
-  BackRect.Bottom := BaseRect.Bottom + ((BaseRect.Height - BackRect.Height) div 2);
-  Theme.GLImages[tiProgressFill].IgnoreTooLargeCorners := true;
-  Theme.GLImages[tiProgressBar].IgnoreTooLargeCorners := true;
-  if IsOn then
-    Theme.Draw(BackRect, tiProgressFill, UIScale)
-  else
-    Theme.Draw(BackRect, tiProgressBar, UIScale);
+  BackRect.Height := Round(BaseRect.Height * 0.5);  //*0.4; //BaseRect.Height / 2;
+  BackRect.Bottom := BaseRect.Bottom + ((BaseRect.Height - BackRect.Height) / 2);
+  Theme.Draw(BackRect, tiSwitchControl, UIScale);
+  if Checked then
+    Theme.Draw(BackRect, tiSwitchControlFill, UIScale);
 
   // handle
   HandleRect := BaseRect;
-  HandleRect.Width := BaseRect.Width div 3; //HandleRect.Height;
-  if IsOn then
+  HandleRect.Width := BaseRect.Width / 3; //HandleRect.Height;
+  if Checked then
     HandleRect.Left := BaseRect.Right - HandleRect.Width;
 
   if FPressed then
@@ -106,47 +108,82 @@ begin
   Theme.Draw(HandleRect, HandleImage, UIScale)
 end;
 
-function TCastleSwitchControl.Rect: TRectangle;
-begin
-  Result := Rectangle(Left, Bottom, Width, Height);
-  Result := Result.ScaleAround0(UIScale);
-end;
-
 procedure TCastleSwitchControl.SetEnabled(const Value: boolean);
 begin
   if FEnabled <> Value then
   begin
     FEnabled := Value;
-    VisibleChange;
+    VisibleChange([chRender]);
   end;
 end;
 
-procedure TCastleSwitchControl.SetIsOn(const Value: boolean);
+procedure TCastleSwitchControl.SetChecked(const Value: boolean);
 begin
-  if FIsOn <> Value then
+  if FChecked <> Value then
   begin
-    FIsOn := Value;
-    VisibleChange;
+    FChecked := Value;
+    VisibleChange([chRender]);
   end;
 end;
 
 function TCastleSwitchControl.Press(const Event: TInputPressRelease): boolean;
 begin
   Result := inherited;
-  FPressed := true;
-  Result := ExclusiveEvents;
+  if Result then Exit;
+
+  if Event.IsMouseButton(mbLeft) or
+     Event.IsKey(keySpace) or
+     Event.IsKey(keyEnter) then
+  begin
+    FPressed := true;
+    Exit(ExclusiveEvents);
+  end;
 end;
 
 function TCastleSwitchControl.Release(const Event: TInputPressRelease): boolean;
 begin
   Result := inherited;
-  FPressed := false;
-  FIsOn := not FIsOn;
-  VisibleChange;
+  if Result then Exit;
 
-  if Assigned(FOnChange) then
-    FOnChange(Self);
-  Result := ExclusiveEvents;
+  if FPressed and (
+     Event.IsMouseButton(mbLeft) or
+     Event.IsKey(keySpace) or
+     Event.IsKey(keyEnter)) then
+  begin
+    FPressed := false;
+
+    { Because of mouse capture mechanism in TUIContainer,
+      we receive Release notifications about all clicks that started
+      within our rect, regardless where they finished.
+
+      Just like TCastleButton, the click only counts
+      if it happens over our rect. }
+    if CapturesEventsAtPosition(Event.Position) then
+    begin
+      FChecked := not FChecked; // FPressed, FChecked changed
+      VisibleChange([chRender]);
+
+      { Make sure to execute FOnChange at the end,
+        to have consistent state when calling the callback that can
+        do anything with this TCastleSwitchControl. }
+      if Assigned(FOnChange) then
+        FOnChange(Self);
+    end else
+    begin
+      VisibleChange([chRender]); // FPressed changed
+    end;
+
+    Exit(ExclusiveEvents);
+  end;
+end;
+
+function TCastleSwitchControl.PropertySection(
+  const PropertyName: String): TPropertySection;
+begin
+  if (PropertyName = 'Checked') then
+    Result := psBasic
+  else
+    Result := inherited PropertySection(PropertyName);
 end;
 
 {$endif read_implementation}

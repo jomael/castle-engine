@@ -18,7 +18,7 @@
 
   Run with $1 = 3d model to open.
   Navigate by mouse/keys like in view3dscene (see
-  http://castle-engine.sourceforge.net/view3dscene.php).
+  https://castle-engine.io/view3dscene.php).
 
   Keys s / S scale shadow more / less (for more/less dramatic effect;
   the default scale is anyway 2 times larger than what math suggests,
@@ -30,19 +30,18 @@ program dynamic_ambient_occlusion;
 
 uses SysUtils, Classes, Math,
   {$ifdef CASTLE_OBJFPC} CastleGL, {$else} GL, GLExt, {$endif}
-  CastleVectors, CastleWindow, CastleTriangles, Castle3D,
+  CastleVectors, CastleWindow, CastleTriangles, CastleTransform,
   CastleClassUtils, CastleUtils, CastleKeysMouse,
   CastleGLUtils, CastleSceneCore, CastleScene, CastleParameters,
   CastleFilesUtils, CastleStringUtils, CastleGLShaders, CastleShapes,
   X3DFields, CastleImages, CastleGLImages, CastleMessages, CastleLog,
-  CastleGLVersion, CastleSceneManager, CastleRenderingCamera,
-  CastleRectangles, CastleApplicationProperties;
+  CastleGLVersion, CastleViewport, CastleRectangles, CastleApplicationProperties;
 
 type
   TDrawType = (dtNormalGL, dtElements, dtElementsIntensity, dtPass1, dtPass2);
 
 var
-  Window: TCastleWindowCustom;
+  Window: TCastleWindowBase;
 
   Scene: TCastleScene;
   GLSLProgram: array [0..1] of TGLSLProgram;
@@ -196,22 +195,16 @@ procedure CalculateElements;
   end;
 
 var
-  SI: TShapeTreeIterator;
+  ShapeList: TShapeList;
   I, GoodElementsCount, ShapeIndex, ShapeCoord: Integer;
 begin
   Elements.Count := 0;
 
   SetLength(Shapes, Scene.Shapes.ShapesCount(true, true, false));
 
-  ShapeIndex := 0;
-  SI := TShapeTreeIterator.Create(Scene.Shapes, true, true, false);
-  try
-    while SI.GetNext do
-    begin
-      AddShapeElements(ShapeIndex, SI.Current);
-      Inc(ShapeIndex);
-    end;
-  finally FreeAndNil(SI) end;
+  ShapeList := Scene.Shapes.TraverseList(true, true, false);
+  for ShapeIndex := 0 to ShapeList.Count - 1 do
+    AddShapeElements(ShapeIndex, ShapeList[ShapeIndex]);
 
   { Remove Elements with zero normal vector.
 
@@ -456,14 +449,14 @@ var
   FullRenderIntensityTex: TGrayscaleImage;
 
 type
-  TMySceneManager = class(TCastleSceneManager)
+  TMyViewport = class(TCastleViewport)
     procedure RenderFromView3D(const Params: TRenderParams); override;
   end;
 
 var
-  SceneManager: TMySceneManager;
+  Viewport: TMyViewport;
 
-procedure TMySceneManager.RenderFromView3D(const Params: TRenderParams);
+procedure TMyViewport.RenderFromView3D(const Params: TRenderParams);
 
   { If ElementsIntensityTex = nil,
     then all element discs will have the same glMaterial.
@@ -618,15 +611,13 @@ var
 begin
   { RenderFromView3D must initialize some Params fields itself }
   Params.InShadow := false;
-  Params.Frustum := @RenderingCamera.Frustum;
+  Params.Frustum := @Params.RenderingCamera.Frustum;
 
   case DrawType of
     dtNormalGL:
       begin
-        Params.Transparent := false; Params.ShadowVolumesReceivers := false; Scene.Render(Params);
-        Params.Transparent := false; Params.ShadowVolumesReceivers := true ; Scene.Render(Params);
-        Params.Transparent := true ; Params.ShadowVolumesReceivers := false; Scene.Render(Params);
-        Params.Transparent := true ; Params.ShadowVolumesReceivers := true ; Scene.Render(Params);
+        Params.Transparent := false; Params.ShadowVolumesReceivers := [false, true]; Scene.Render(Params);
+        Params.Transparent := true ; Params.ShadowVolumesReceivers := [false, true]; Scene.Render(Params);
       end;
     dtElements:
       begin
@@ -650,10 +641,8 @@ begin
         FullRenderIntensityTex := CaptureAORect(false);
         try
           FullRenderShape := nil;
-          Params.Transparent := false; Params.ShadowVolumesReceivers := false; Scene.Render(Params);
-          Params.Transparent := false; Params.ShadowVolumesReceivers := true ; Scene.Render(Params);
-          Params.Transparent := true ; Params.ShadowVolumesReceivers := false; Scene.Render(Params);
-          Params.Transparent := true ; Params.ShadowVolumesReceivers := true ; Scene.Render(Params);
+          Params.Transparent := false; Params.ShadowVolumesReceivers := [false, true]; Scene.Render(Params);
+          Params.Transparent := true ; Params.ShadowVolumesReceivers := [false, true]; Scene.Render(Params);
         finally FreeAndNil(FullRenderIntensityTex) end;
       end;
   end;
@@ -735,7 +724,7 @@ begin
   if (Elements.Count = 0) or
      Scene.BoundingBox.IsEmpty then
   begin
-    Window.Controls.Remove(SceneManager); { do not try to render }
+    Window.Controls.Remove(Viewport); { do not try to render }
     MessageOk(Window, 'No elements, or empty bounding box --- we cannot do dyn ambient occlusion. Exiting.');
     Window.Close;
     Exit;
@@ -746,9 +735,9 @@ begin
   { initialize GLSL program }
   GLSLProgram[0] := TGLSLProgram.Create;
 
-  if GLSLProgram[0].Support = gsNone then
+  if GLFeatures.Shaders = gsNone then
   begin
-    Window.Controls.Remove(SceneManager); { do not try to render }
+    Window.Controls.Remove(Viewport); { do not try to render }
     MessageOk(Window, 'Sorry, GLSL shaders not supported on your graphic card. Exiting.');
     Window.Close;
     Exit;
@@ -893,10 +882,10 @@ end;
 
 var
   ModelURL: string =
-    //'data/chinchilla_awakens.x3dv';
-    'data/peach.wrl.gz';
+    //'castle-data:/chinchilla_awakens.x3dv';
+    'castle-data:/peach.wrl.gz';
 begin
-  Window := TCastleWindowCustom.Create(Application);
+  Window := TCastleWindowBase.Create(Application);
 
   Elements := TAOElementList.Create;
 
@@ -918,11 +907,15 @@ begin
     Scene.OnGeometryChanged := @THelper(nil).SceneGeometryChanged;
     Scene.ProcessEvents := true;
 
-    { init SceneManager, with a Scene inside }
-    SceneManager := TMySceneManager.Create(Window);
-    Window.Controls.InsertFront(SceneManager);
-    SceneManager.MainScene := Scene;
-    SceneManager.Items.Add(Scene);
+    { init Viewport, with a Scene inside }
+    Viewport := TMyViewport.Create(Window);
+    Viewport.FullSize := true;
+    Viewport.AutoCamera := true;
+    Viewport.AutoNavigation := true;
+    Window.Controls.InsertFront(Viewport);
+
+    Viewport.Items.MainScene := Scene;
+    Viewport.Items.Add(Scene);
 
     Window.MainMenu := CreateMainMenu;
     Window.OnMenuClick := @MenuClick;
@@ -933,7 +926,7 @@ begin
     Window.SetDemoOptions(K_F11, CharEscape, true);
     Window.OpenAndRun;
   finally
-    FreeAndNil(SceneManager);
+    FreeAndNil(Viewport);
     FreeAndNil(Elements);
     FreeAndNil(ElementsPositionAreaTex);
     FreeAndNil(ElementsNormalTex);

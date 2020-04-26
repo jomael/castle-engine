@@ -1,4 +1,20 @@
 /* -*- tab-width: 4 -*- */
+
+/*
+  Copyright 2018-2020 Michalis Kamburelis.
+
+  This file is part of "Castle Game Engine".
+
+  "Castle Game Engine" is free software; see the file COPYING.txt,
+  included in this distribution, for details about the copyright.
+
+  "Castle Game Engine" is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  ----------------------------------------------------------------------------
+*/
+
 package net.sourceforge.castleengine;
 
 import android.app.Activity;
@@ -16,7 +32,7 @@ import com.gameanalytics.sdk.*;
  */
 public class ServiceGameAnalytics extends ServiceAbstract
 {
-    private static final String TAG = "${NAME}.castleengine.ServiceGameAnalytics";
+    private static final String CATEGORY = "ServiceGameAnalytics";
     // Enable log when implementing the SDK - remember to turn it off in production!
     // Watch by "adb logcat | grep --text -i gameanalytics"
     private final boolean debug = false;
@@ -62,7 +78,7 @@ public class ServiceGameAnalytics extends ServiceAbstract
         // Initialize
         GameAnalytics.initializeWithGameKey(getActivity(), gameKey, secretKey);
 
-        Log.i(TAG, "GameAnalytics initialized with application version " + version);
+        logInfo(CATEGORY, "GameAnalytics initialized with application version " + version);
 
         initialized = true;
     }
@@ -73,10 +89,6 @@ public class ServiceGameAnalytics extends ServiceAbstract
         if (!initialized) {
             return;
         }
-        // Only needed if your API level is below 14.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
-            GAPlatform.onActivityResumed(getActivity());
-        }
     }
 
     @Override
@@ -85,10 +97,6 @@ public class ServiceGameAnalytics extends ServiceAbstract
         if (!initialized) {
             return;
         }
-        // Only needed if your API level is below 14.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
-            GAPlatform.onActivityPaused(getActivity());
-        }
     }
 
     @Override
@@ -96,10 +104,6 @@ public class ServiceGameAnalytics extends ServiceAbstract
     {
         if (!initialized) {
             return;
-        }
-        // Only needed if your API level is below 14.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
-            GAPlatform.onActivityStopped(getActivity());
         }
     }
 
@@ -145,7 +149,7 @@ public class ServiceGameAnalytics extends ServiceAbstract
 			case 1: gaStatus = GAProgressionStatus.Fail; break;
 			case 2: gaStatus = GAProgressionStatus.Complete; break;
             default:
-                Log.w(TAG, "Invalid analytics-send-progress status " + status);
+                logWarning(CATEGORY, "Invalid analytics-send-progress status " + status);
                 return;
         }
         GameAnalytics.addProgressionEventWithProgressionStatus(gaStatus, world, level, phase, score);

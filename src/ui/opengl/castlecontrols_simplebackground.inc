@@ -1,3 +1,4 @@
+{%MainUnit castlecontrols.pas}
 {
   Copyright 2010-2018 Michalis Kamburelis.
 
@@ -18,24 +19,22 @@
   { Fill the whole window with a simple color.
     This is very fast, but it unconditionally clears the whole window,
     and there is no blending (if your @link(Color) has some alpha, it is
-    just copied to the color buffer). To clear the rectangle with a color,
-    with optional blending, use @link(TCastleRectangleControl) instead.
+    just copied to the color buffer).
 
-    Note that @link(TCastleSceneManager) clears the background under itself
-    by default. See TCastleSceneManager.Transparent,
-    TCastleSceneManager.BackgroundColor .
-    So if you use @link(TCastleSceneManager) that fills the whole screen,
-    then there's no need to use this control. }
-  TCastleSimpleBackground = class(TUIControl)
+    To clear the rectangle with a color,
+    with optional blending, use @link(TCastleRectangleControl) instead. }
+  TCastleSimpleBackground = class(TCastleUserInterface)
   strict private
     FColor: TCastleColor;
     procedure SetColor(const Value: TCastleColor);
   public
     constructor Create(AOwner: TComponent); override;
     procedure Render; override;
+    property Width default 0;
+    property Height default 0;
     { Background color. By default, this is black color with opaque alpha. }
     property Color: TCastleColor read FColor write SetColor;
-  end;
+  end deprecated 'use TCastleRectangleControl with FullSize=true; note that by default it has White color, while TCastleSimpleBackground has by default Black color.';
 
 {$endif read_interface}
 
@@ -47,6 +46,9 @@ constructor TCastleSimpleBackground.Create(AOwner: TComponent);
 begin
   inherited;
   FColor := Black;
+  // This should have size = 0, to have empty rectangle, to never catch events
+  Width := 0;
+  Height := 0;
 end;
 
 procedure TCastleSimpleBackground.SetColor(const Value: TCastleColor);
@@ -54,7 +56,7 @@ begin
   if not TCastleColor.PerfectlyEquals(FColor, Value) then
   begin
     FColor := Value;
-    VisibleChange;
+    VisibleChange([chRender]);
   end;
 end;
 

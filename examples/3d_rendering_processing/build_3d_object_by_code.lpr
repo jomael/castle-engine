@@ -19,7 +19,7 @@
   Check out latest X3D specification,
   http://www.web3d.org/x3d/specifications/ISO-IEC-19775-1.2-X3D-AbstractSpecification/index.html,
   and our
-  http://castle-engine.sourceforge.net/x3d_implementation_status.php
+  https://castle-engine.io/x3d_implementation_status.php
   for a complete list of supported VRML/X3D nodes. }
 
 uses SysUtils, CastleVectors, X3DNodes;
@@ -87,7 +87,7 @@ begin
     { You also could create a TCastleSceneCore, or even TCastleScene
       to render this 3D object directly in OpenGL (without saving to any
       file). For example in scene_manager_basic.lpr you could replace
-        Scene.Load(ApplicationData('boxes.x3dv'));
+        Scene.Load('castle-data:/boxes.x3dv');
       with
         Scene.Load(Root, false);
       to render your constructed 3D object.

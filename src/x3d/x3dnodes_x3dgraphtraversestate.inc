@@ -112,11 +112,10 @@
     function Equals(SecondValue: TX3DGraphTraverseState;
       const IgnoreTransform: boolean): boolean; {$ifdef TOBJECT_HAS_EQUALS} reintroduce; {$endif}
 
-    { Diffuse (and alpha) texture that should be used for nodes within this State.
-      Regardless of VRML/X3D version. May return multi-texture
-      (TMultiTextureNode), or normal 2D texture (TAbstractTexture2DNode),
-      or some other TAbstractTextureNode descendant (cube map, 3d texture). }
-    function DiffuseAlphaTexture: TAbstractTextureNode;
+    { Primary texture that determines RGB color and opacity.
+      See @link(TAppearanceNode.MainTexture) for definition. }
+    function MainTexture: TAbstractTextureNode;
+    function MainTexture(out Mapping: Integer): TAbstractTextureNode;
 
     { Returns BlendMode for this state, or @nil if not present. }
     function BlendMode: TBlendModeNode;
@@ -454,14 +453,22 @@ begin
   end;
 end;
 
-function TX3DGraphTraverseState.DiffuseAlphaTexture: TAbstractTextureNode;
+function TX3DGraphTraverseState.MainTexture: TAbstractTextureNode;
+var
+  IgnoredMapping: Integer;
+begin
+  Result := MainTexture(IgnoredMapping);
+end;
+
+function TX3DGraphTraverseState.MainTexture(out Mapping: Integer): TAbstractTextureNode;
 begin
   Result := nil;
+  Mapping := -1;
   if ShapeNode = nil then
     Result := VRML1State.Texture2
   else
   if ShapeNode.Appearance <> nil then
-    Result := ShapeNode.Appearance.DiffuseAlphaTexture;
+    Result := ShapeNode.Appearance.MainTexture(Mapping);
 end;
 
 function TX3DGraphTraverseState.BlendMode: TBlendModeNode;
@@ -483,19 +490,21 @@ end;
 
 function TX3DGraphTraverseState.MaterialInfo: TMaterialInfo;
 var
-  M2: TMaterialNode;
+  Mat: TAbstractMaterialNode;
   SurfaceShader: TCommonSurfaceShaderNode;
 begin
   if ShapeNode <> nil then
   begin
+    {$warnings off} // using deprecated to keep backward compatibility
     SurfaceShader := ShapeNode.CommonSurfaceShader;
+    {$warnings on}
     if SurfaceShader <> nil then
       Result := SurfaceShader.MaterialInfo
     else
     begin
-      M2 := ShapeNode.Material;
-      if M2 <> nil then
-        Result := M2.MaterialInfo
+      Mat := ShapeNode.Material;
+      if Mat <> nil then
+        Result := Mat.MaterialInfo
       else
         Result := nil;
     end;

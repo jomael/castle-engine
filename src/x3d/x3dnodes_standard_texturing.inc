@@ -22,11 +22,8 @@
     {$I auto_generated_node_helpers/x3dnodes_x3dtexturecoordinatenode.inc}
   end;
 
-  { Base for all nodes which specify sources for texture images. }
+  { Base for all nodes which specify a texture, possibly multi-texture. }
   TAbstractTextureNode = class(TAbstractAppearanceChildNode)
-  strict private
-    function GetAlphaChannelField: TAutoAlphaChannel;
-    procedure SetAlphaChannelField(const Value: TAutoAlphaChannel);
   strict protected
     { Alpha channel detected from image contents (or children nodes),
       ignoring our FdAlphaChannel field.
@@ -49,22 +46,36 @@
       Override to say something more descriptive. }
     function TextureDescription: string; virtual;
 
+    { Alpha channel of the loaded texture data.
+      Looks at loaded texture data, and at alphaChannel field
+      (see https://castle-engine.io/x3d_extensions.php#section_ext_alpha_channel_detection ).
+      In case of MultiTexture node, looks at children. }
+    function AlphaChannelFinal: TAlphaChannel; virtual;
+  end;
+
+  { Base for all nodes which specify a texture, but not multi-texture. }
+  TAbstractSingleTextureNode = class(TAbstractTextureNode)
+  strict private
+    function GetAlphaChannelField: TAutoAlphaChannel;
+    procedure SetAlphaChannelField(const Value: TAutoAlphaChannel);
+  public
+    procedure CreateNode; override;
+
     strict private FFdEffects: TMFNode;
     public property FdEffects: TMFNode read FFdEffects;
 
+    {$ifndef CASTLE_SLIM_NODES}
     strict private FFdCrossOrigin: TSFString;
     public property FdCrossOrigin: TSFString read FFdCrossOrigin;
-
-    { Alpha channel of the loaded texture data.
-      Looks at loaded texture data, and at alphaChannel field
-      (see http://castle-engine.sourceforge.net/x3d_extensions.php#section_ext_alpha_channel_detection ) }
-    function AlphaChannelFinal: TAlphaChannel;
+    {$endif}
 
     strict private FFdAlphaChannel: TSFStringEnum;
     public property FdAlphaChannel: TSFStringEnum read FFdAlphaChannel;
     property AlphaChannelField: TAutoAlphaChannel read GetAlphaChannelField write SetAlphaChannelField;
 
-    {$I auto_generated_node_helpers/x3dnodes_x3dtexturenode.inc}
+    function AlphaChannelFinal: TAlphaChannel; override;
+
+    {$I auto_generated_node_helpers/x3dnodes_x3dsingletexturenode.inc}
   end;
 
   TTexturePropertiesNode = class;
@@ -73,7 +84,7 @@
 
     For X3D, this descends from X3DTextureNode and is an ancestor
     for X3DTexture2DNode, so X3D hierarchy is nicely preserved. }
-  TAbstractTexture2DNode = class(TAbstractTextureNode)
+  TAbstractTexture2DNode = class(TAbstractSingleTextureNode)
   private
     { Together we call FTextureImage, FTextureComposite,
       FTextureVideo, FAlphaChannelData as "texture data". }
@@ -268,10 +279,12 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdUrl: TMFString;
     public property FdUrl: TMFString read FFdUrl;
+
+    strict private FFdFlipVertically: TSFBool;
+    public property FdFlipVertically: TSFBool read FFdFlipVertically;
 
     function TextureDescription: string; override;
 
@@ -285,6 +298,7 @@
     FDuration: TFloatTime;
     FInternalTimeDependentHandler: TInternalTimeDependentHandler;
     function GetCycleInterval: TFloatTime;
+  private
     function GetInternalTimeDependentHandler: TInternalTimeDependentHandler;
   strict protected
     procedure LoadTextureData(out WasCacheUsed: boolean); override;
@@ -293,7 +307,6 @@
     destructor Destroy; override;
 
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdDescription: TSFString;
     public property FdDescription: TSFString read FFdDescription;
@@ -318,6 +331,9 @@
 
     strict private FFdUrl: TMFString;
     public property FdUrl: TMFString read FFdUrl;
+
+    strict private FFdFlipVertically: TSFBool;
+    public property FdFlipVertically: TSFBool read FFdFlipVertically;
 
     { Event out } { }
     strict private FEventDuration_changed: TSFTimeEvent;
@@ -371,7 +387,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdAlpha: TSFFloat;
     public property FdAlpha: TSFFloat read FFdAlpha;
@@ -402,7 +417,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdTexCoord: TMFNode;
     public property FdTexCoord: TMFNode read FFdTexCoord;
@@ -416,7 +430,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdTextureTransform: TMFNode;
     public property FdTextureTransform: TMFNode read FFdTextureTransform;
@@ -457,7 +470,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdImage: TSFImage;
     public property FdImage: TSFImage read FFdImage;
@@ -472,7 +484,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdPoint: TMFVec2f;
     public property FdPoint: TMFVec2f read FFdPoint;
@@ -485,7 +496,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdMode: TSFString;
     public property FdMode: TSFString read FFdMode;
@@ -516,7 +526,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdAnisotropicDegree: TSFFloat;
     public property FdAnisotropicDegree: TSFFloat read FFdAnisotropicDegree;
@@ -569,7 +578,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdCenter: TSFVec2f;
     public property FdCenter: TSFVec2f read FFdCenter;
@@ -603,30 +611,12 @@ begin
   DefaultContainerField := 'texCoord';
 end;
 
-{ TAbstractTextureNode -------------------------------------------------------- }
+{ TAbstractTextureNode ------------------------------------------------------- }
 
 procedure TAbstractTextureNode.CreateNode;
 begin
   inherited;
-
-  FFdEffects := TMFNode.Create(Self, false, 'effects', [TEffectNode]);
-   FdEffects.ChangesAlways := [chEverything];
-  AddField(FFdEffects);
-
-  FFdCrossOrigin := TSFString.Create(Self, false, 'crossOrigin', '');
-   FdCrossOrigin.ChangesAlways := [];
-  AddField(FFdCrossOrigin);
-
-  FFdAlphaChannel := TSFStringEnum.Create(Self, false, 'alphaChannel', AlphaToString, Ord(acAuto));
-   FdAlphaChannel.ChangesAlways := [chVisibleVRML1State];
-  AddField(FFdAlphaChannel);
-
   DefaultContainerField := 'texture';
-end;
-
-function TAbstractTextureNode.TextureDescription: string;
-begin
-  Result := X3DType;
 end;
 
 function TAbstractTextureNode.AlphaChannelData: TAlphaChannel;
@@ -635,6 +625,47 @@ begin
 end;
 
 function TAbstractTextureNode.AlphaChannelFinal: TAlphaChannel;
+begin
+  Result := AlphaChannelData;
+end;
+
+function TAbstractTextureNode.TextureDescription: string;
+begin
+  Result := X3DType;
+end;
+
+{ TAbstractSingleTextureNode -------------------------------------------------------- }
+
+procedure TAbstractSingleTextureNode.CreateNode;
+begin
+  inherited;
+
+  FFdEffects := TMFNode.Create(Self, false, 'effects', [TEffectNode]);
+   FdEffects.ChangesAlways := [chEverything];
+  AddField(FFdEffects);
+
+  {$ifndef CASTLE_SLIM_NODES}
+  FFdCrossOrigin := TSFString.Create(Self, false, 'crossOrigin', '');
+   FdCrossOrigin.ChangesAlways := [];
+  AddField(FFdCrossOrigin);
+  {$endif}
+
+  FFdAlphaChannel := TSFStringEnum.Create(Self, false, 'alphaChannel', AlphaToString, Ord(acAuto));
+   FdAlphaChannel.ChangesAlways := [chVisibleVRML1State];
+  AddField(FFdAlphaChannel);
+end;
+
+function TAbstractSingleTextureNode.GetAlphaChannelField: TAutoAlphaChannel;
+begin
+  Result := TAutoAlphaChannel(FdAlphaChannel.EnumValue);
+end;
+
+procedure TAbstractSingleTextureNode.SetAlphaChannelField(const Value: TAutoAlphaChannel);
+begin
+  FdAlphaChannel.SendEnumValue(Ord(Value));
+end;
+
+function TAbstractSingleTextureNode.AlphaChannelFinal: TAlphaChannel;
 var
   Res: TAutoAlphaChannel;
 begin
@@ -642,16 +673,6 @@ begin
   if Res = acAuto then
     Result := AlphaChannelData else
     Result := Res;
-end;
-
-function TAbstractTextureNode.GetAlphaChannelField: TAutoAlphaChannel;
-begin
-  Result := TAutoAlphaChannel(FdAlphaChannel.EnumValue);
-end;
-
-procedure TAbstractTextureNode.SetAlphaChannelField(const Value: TAutoAlphaChannel);
-begin
-  FdAlphaChannel.SendEnumValue(Ord(Value));
 end;
 
 { TAbstractTexture2DNode ----------------------------------------------------------- }
@@ -830,6 +851,9 @@ begin
    FdUrl.ChangesAlways := [chTextureImage];
   AddField(FFdUrl);
   { X3D specification comment: [URI] }
+
+  FFdFlipVertically := TSFBool.Create(Self, false, 'flipVertically', false);
+  AddField(FFdFlipVertically);
 end;
 
 class function TImageTextureNode.ClassX3DType: string;
@@ -837,33 +861,38 @@ begin
   Result := 'ImageTexture';
 end;
 
-class function TImageTextureNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
 procedure TImageTextureNode.LoadTextureData(out WasCacheUsed: boolean);
+
+  function LoadOptions: TLoadImageOptions;
+  begin
+    Result := [];
+    if FlipVertically then
+      Include(Result, liFlipVertically);
+  end;
+
 var
   I: Integer;
-  FullUrl: string;
+  FullUrl, ErrorMessage: string;
+  Success: boolean;
 begin
   WasCacheUsed := false;
   FTextureUsedFullUrl := '';
+  Success := false;
+  ErrorMessage := '';
 
   for I := 0 to FdUrl.Count - 1 do
     if FdUrl.Items[I] = '' then
     begin
-      { Empty URL would be expanded by PathFromBaseUrl to directory
+      { Special error message in this case, otherwise empty URL
+        would be expanded by PathFromBaseUrl to directory
         and produce unclear error message. }
-      WritelnWarning('VRML/X3D', Format('Empty URL for %s ignored', [X3DType]));
+      ErrorMessage := ErrorMessage + NL + '  Empty URL ignored';
     end else
     begin
       FullUrl := PathFromBaseUrl(FdUrl.Items[I]);
       try
-        FTextureImage := X3DCache.TextureImage_IncReference(FullUrl, FTextureComposite,
-          FAlphaChannelData);
+        FTextureImage := X3DCache.TextureImage_IncReference(
+          FullUrl, FTextureComposite, FAlphaChannelData, LoadOptions);
         WasCacheUsed := true;
         if WarnAboutAbsoluteFilenames and
            AbsoluteFileURI(FdUrl.Items[I]) and
@@ -873,14 +902,26 @@ begin
           WritelnWarning('VRML/X3D', Format('Loaded data from an absolute filename "%s", this makes the data possibly unportable (it will probably not work on other systems/locations). Always use relative paths.',
             [FdUrl.Items[I]]));
         FTextureUsedFullUrl := URIDisplay(FullUrl);
+        Success := true;
         Break;
       except
         on E: Exception do
-          { Remember that WritelnWarning *may* raise an exception. }
-          WritelnWarning('Texture', Format(SLoadError,
-            [E.ClassName, 'texture', URIDisplay(FullUrl), E.Message]));
+          { Silence the Exception, continue trying to load more textures. }
+          ErrorMessage := ErrorMessage + NL + '  ' + Format(SLoadError,
+            [E.ClassName, 'texture', URIDisplay(FullUrl), E.Message]);
       end;
     end;
+
+  if ErrorMessage <> '' then
+  begin
+    if Success then
+      WritelnLog('Texture', 'Some of the texture URLs failed to load, although we found one URL that succeeded:' +
+        ErrorMessage)
+    else
+      WritelnWarning('Texture', 'Cannot load the texture:' + ErrorMessage);
+  end;
+  { Note that when Success = false but ErrorMessage = '', then we're quiet
+    about it. This happens when Urls.Count = 0. }
 end;
 
 function TImageTextureNode.TextureDescription: string;
@@ -929,6 +970,9 @@ begin
   AddField(FFdUrl);
   { X3D specification comment: [URI] }
 
+  FFdFlipVertically := TSFBool.Create(Self, false, 'flipVertically', false);
+  AddField(FFdFlipVertically);
+
   FEventDuration_changed := TSFTimeEvent.Create(Self, 'duration_changed', false);
   AddEvent(FEventDuration_changed);
 
@@ -973,14 +1017,15 @@ begin
   Result := 'MovieTexture';
 end;
 
-class function TMovieTextureNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
 procedure TMovieTextureNode.LoadTextureData(out WasCacheUsed: boolean);
+
+  function LoadOptions: TLoadImageOptions;
+  begin
+    Result := [];
+    if FlipVertically then
+      Include(Result, liFlipVertically);
+  end;
+
 var
   I: Integer;
   FullUrl: string;
@@ -992,7 +1037,8 @@ begin
   begin
     FullUrl := PathFromBaseUrl(FdUrl.Items[I]);
     try
-      FTextureVideo := X3DCache.Video_IncReference(FullUrl, FAlphaChannelData);
+      FTextureVideo := X3DCache.Video_IncReference(
+        FullUrl, FAlphaChannelData, LoadOptions);
 
       { if loading succeded, set WasCacheUsed and others and break. }
       WasCacheUsed := true;
@@ -1074,7 +1120,7 @@ begin
    FdSource.ChangesAlways := [chTextureRendererProperties];
   AddField(FFdSource);
 
-  FFdTexture := TMFNode.Create(Self, true, 'texture', [TAbstractTextureNode]);
+  FFdTexture := TMFNode.Create(Self, true, 'texture', [TAbstractSingleTextureNode]);
    FdTexture.ChangesAlways := [chTextureRendererProperties];
   AddField(FFdTexture);
 end;
@@ -1082,12 +1128,6 @@ end;
 class function TMultiTextureNode.ClassX3DType: string;
 begin
   Result := 'MultiTexture';
-end;
-
-class function TMultiTextureNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 function TMultiTextureNode.AlphaChannelData: TAlphaChannel;
@@ -1100,8 +1140,8 @@ begin
   begin
     ChildTex := FdTexture[I];
     if (ChildTex <> nil) and
-       (ChildTex is TAbstractTextureNode) then
-      AlphaMaxVar(Result, TAbstractTextureNode(ChildTex).AlphaChannelFinal);
+       (ChildTex is TAbstractSingleTextureNode) then
+      AlphaMaxVar(Result, TAbstractSingleTextureNode(ChildTex).AlphaChannelFinal);
   end;
 end;
 
@@ -1119,12 +1159,6 @@ begin
   Result := 'MultiTextureCoordinate';
 end;
 
-class function TMultiTextureCoordinateNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
 procedure TMultiTextureTransformNode.CreateNode;
 begin
   inherited;
@@ -1137,12 +1171,6 @@ end;
 class function TMultiTextureTransformNode.ClassX3DType: string;
 begin
   Result := 'MultiTextureTransform';
-end;
-
-class function TMultiTextureTransformNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 function TMultiTextureTransformNode.TransformMatrix: TMatrix4;
@@ -1164,13 +1192,6 @@ begin
 class function TPixelTextureNode.ClassX3DType: string;
 begin
   Result := 'PixelTexture';
-end;
-
-class function TPixelTextureNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 procedure TPixelTextureNode.LoadTextureData(out WasCacheUsed: boolean);
@@ -1209,13 +1230,6 @@ begin
   Result := 'TextureCoordinate';
 end;
 
-class function TTextureCoordinateNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
 procedure TTextureCoordinateGeneratorNode.CreateNode;
 begin
   inherited;
@@ -1245,12 +1259,6 @@ end;
 class function TTextureCoordinateGeneratorNode.ClassX3DType: string;
 begin
   Result := 'TextureCoordinateGenerator';
-end;
-
-class function TTextureCoordinateGeneratorNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 class function TTextureCoordGenNode.ClassX3DType: string;
@@ -1328,12 +1336,6 @@ end;
 class function TTexturePropertiesNode.ClassX3DType: string;
 begin
   Result := 'TextureProperties';
-end;
-
-class function TTexturePropertiesNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 function TTexturePropertiesNode.GetMinificationFilter: TAutoMinificationFilter;
@@ -1461,13 +1463,6 @@ end;
 class function TTextureTransformNode.ClassX3DType: string;
 begin
   Result := 'TextureTransform';
-end;
-
-class function TTextureTransformNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 function TTextureTransformNode.TransformMatrix: TMatrix4;

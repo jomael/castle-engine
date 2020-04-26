@@ -1,4 +1,8 @@
-cd ../
+#!/bin/bash
+set -euo pipefail
 
-fpc -gh -dDEBUG -dTEXT_RUNNER "$@" \
-  @castle-fpc.cfg tests/test_castle_game_engine.lpr
+# Compile the auto-tests.
+# In debug mode, with text runner.
+# One optional additional parameter possible, like -dXXX.
+
+castle-engine --mode=debug --compiler-option="$@" compile

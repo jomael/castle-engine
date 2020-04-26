@@ -1,3 +1,4 @@
+{%MainUnit castlecontrols.pas}
 {
   Copyright 2010-2018 Michalis Kamburelis.
 
@@ -19,30 +20,30 @@
     This is usually used through the CastleWindowProgress and CastleProgress
     features. There is no need to directly create and access the TCastleProgressBar
     instance in this case. }
-  TCastleProgressBar = class(TUIControlFont)
+  TCastleProgressBar = class(TCastleUserInterfaceFont)
   strict private
     { Background image. }
     FBackground: TCastleImage;
-    FGLBackground: TGLImageCore;
+    FDrawableBackground: TDrawableImage;
     FYPosition: Single;
     FProgress: TProgress;
     procedure SetBackground(const Value: TCastleImage);
+  protected
+    procedure PreferredSize(var PreferredWidth, PreferredHeight: Single); override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     procedure Render; override;
-    procedure GLContextOpen; override;
-    procedure GLContextClose; override;
-    function Rect: TRectangle; override;
+
+    property HorizontalAnchorSelf default hpMiddle;
+    property HorizontalAnchorParent default hpMiddle;
+    property VerticalAnchorSelf default vpMiddle;
+    property VerticalAnchorParent default vpMiddle;
 
     { Progress that rules the position and title displayed. }
     property Progress: TProgress read FProgress write FProgress;
 
     { Background drawn under the progress bar.
-      May be left unassigned (@nil), in which case you're responsible for making
-      sure some other control (like TCastleSimpleBackground or maybe 3D viewport)
-      always covers the screen underneath.
-
       When it's assigned, it's always drawn scaled to cover the whole
       screen (container). It's owner by this component (it will be automatically
       freed when necessary). }
@@ -73,7 +74,7 @@ const
 procedure MakeTextFit(var Text: string; const Font: TCastleFont;
   const MaxWidth: Integer);
 var
-  DotsWidth: Integer;
+  DotsWidth: Single;
 
   { Make Text shorter by preserving first and last words, inserting
     dots inside, and preserving as much as possible text between first and last
@@ -118,7 +119,7 @@ var
     the prefix + Dots. }
   procedure TrimSimple;
   var
-    NewTextDotsWidth, PotentialNewTextDotsWidth: Integer;
+    NewTextDotsWidth, PotentialNewTextDotsWidth: Single;
     NewText, PotentialNewText: string;
     C: char;
   begin
@@ -137,7 +138,7 @@ var
   end;
 
 var
-  TextWidth: Integer;
+  TextWidth: Single;
 begin
   TextWidth := Font.TextWidth(Text);
   if TextWidth <= MaxWidth then
@@ -154,17 +155,19 @@ begin
     TrimSimple;
 end;
 
-function TCastleProgressBar.Rect: TRectangle;
+procedure TCastleProgressBar.PreferredSize(var PreferredWidth, PreferredHeight: Single);
 var
-  XMargin, Height, YMiddle, Bot: Integer;
-  PR: TRectangle;
+  XMargin, AHeight: Single;
+  PR: TFloatRectangle;
 begin
+  inherited;
+
   PR := ParentRect;
-  XMargin := PR.Width div 8;
-  Height := PR.Height div 12;
-  YMiddle := Round(PR.Height * YPosition);
-  Bot := YMiddle - Height div 2;
-  Result := Rectangle(XMargin, Bot, PR.Width - 2 * XMargin, Height);
+  XMargin := PR.Width / 8;
+  AHeight := PR.Height / 12;
+
+  PreferredWidth := PR.Width - 2 * XMargin;
+  PreferredHeight := AHeight;
 end;
 
 procedure TCastleProgressBar.Render;
@@ -174,34 +177,35 @@ const
 var
   MaxTextWidth: Integer;
   Caption: string;
-  BarRect, FillRect: TRectangle;
+  BarRect, FillRect: TFloatRectangle;
   HeightForText: Single;
 begin
   inherited;
 
   if Progress = nil then Exit;
 
-  if FGLBackground <> nil then
-    FGLBackground.Draw(ParentRect);
+  // TODO: control should not draw over parent this way
+  if FDrawableBackground <> nil then
+    FDrawableBackground.Draw(ParentRect);
 
-  BarRect := Rect;
+  BarRect := RenderRect;
   Theme.Draw(BarRect, tiProgressBar, UIScale);
 
-  FillRect := BarRect.LeftPart(Round(BarRect.Width * Progress.Position / Progress.Max));
+  FillRect := BarRect.LeftPart(BarRect.Width * Progress.Position / Progress.Max);
   { it's normal that at the beginning FillRect is too small to be drawn }
-  Theme.GLImages[tiProgressFill].IgnoreTooLargeCorners := true;
+  Theme.DrawableImages[tiProgressFill].IgnoreTooLargeCorners := true;
   Theme.Draw(FillRect, tiProgressFill, UIScale);
 
-  MaxTextWidth := BarRect.Width - PaddingHorizontal;
+  MaxTextWidth := Round(BarRect.Width - PaddingHorizontal);
   Caption := Progress.Title;
 
   Font.PushProperties;
   HeightForText := BarRect.Height - 2 * MinPaddingVertical;
   if Font.RowHeight > HeightForText then
-    Font.Scale := Font.Scale / (Font.RowHeight / HeightForText);
+    Font.Size := Font.Size / (Font.RowHeight / HeightForText);
   MakeTextFit(Caption, Font, MaxTextWidth);
   Font.Print(BarRect.Left + PaddingHorizontal,
-    BarRect.Bottom + (BarRect.Height - Font.RowHeight) div 2,
+    BarRect.Bottom + Round(BarRect.Height - Font.RowHeight) div 2,
     Theme.TextColor, Caption);
   Font.PopProperties;
 end;
@@ -210,11 +214,14 @@ constructor TCastleProgressBar.Create(AOwner: TComponent);
 begin
   inherited;
   FYPosition := TProgressUserInterface.DefaultBarYPosition;
+  Anchor(hpMiddle);
+  Anchor(vpMiddle);
 end;
 
 destructor TCastleProgressBar.Destroy;
 begin
   FreeAndNil(FBackground);
+  FreeAndNil(FDrawableBackground);
   inherited;
 end;
 
@@ -225,26 +232,11 @@ begin
     FreeAndNil(FBackground);
     FBackground := Value;
 
-    { Free and optionally recreate FGLBackground.
-      We keep assertion that when FBackground is assigned and OpenGL
-      context is active => FGLBackground is assigned too. }
-    FreeAndNil(FGLBackground);
-    if GLInitialized and (FBackground <> nil) then
-      FGLBackground := TGLImageCore.Create(FBackground, true);
+    if FDrawableBackground = nil then
+      FDrawableBackground := TDrawableImage.Create(Value, true, false)
+    else
+      FDrawableBackground.Load(Value);
   end;
-end;
-
-procedure TCastleProgressBar.GLContextOpen;
-begin
-  inherited;
-  if (FGLBackground = nil) and (FBackground <> nil) then
-    FGLBackground := TGLImageCore.Create(FBackground, true);
-end;
-
-procedure TCastleProgressBar.GLContextClose;
-begin
-  FreeAndNil(FGLBackground);
-  inherited;
 end;
 
 {$endif read_implementation}

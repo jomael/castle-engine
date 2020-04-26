@@ -37,7 +37,7 @@
       @link(TCastleTransform.GetCollides Scene.GetCollides) do not matter here.
       Using the TCollisionNode inside Scene matters (so the scene may collide
       as something different than it's visible, see
-      https://castle-engine.sourceforge.io/x3d_implementation_navigation.php ). }
+      https://castle-engine.io/x3d_implementation_navigation.php ). }
     Scene: TCastleSceneCore;
   end;
 
@@ -68,7 +68,7 @@
       @link(TCastleTransform.GetCollides Scene.GetCollides) do not matter here.
       Using the TCollisionNode inside Scene matters (so the scene may collide
       as something different than it's visible, see
-      https://castle-engine.sourceforge.io/x3d_implementation_navigation.php ). }
+      https://castle-engine.io/x3d_implementation_navigation.php ). }
     Scene: TCastleSceneCore;
   end;
 *)
@@ -109,18 +109,19 @@ end;
 function TMeshCollider.CreateKraftShape(const APhysics: TKraft;
   const ARigidBody: TKraftRigidBody): TKraftShape;
 var
-  SI: TShapeTreeIterator;
+  ShapesList: TShapeList;
+  I: Integer;
 begin
   if Scene = nil then
     raise Exception.Create('You must assign a TMeshCollider.Scene to determine the mesh triangles');
 
   Mesh := TKraftMesh.Create(APhysics);
-  SI := TShapeTreeIterator.Create(Scene.Shapes, true);
-  try
-    while SI.GetNext do
-      if SI.Current.Collidable then
-        SI.Current.Triangulate(false, @AddTriangle);
-  finally FreeAndNil(SI) end;
+
+  ShapesList := Scene.Shapes.TraverseList(true);
+  for I := 0 to ShapesList.Count - 1 do
+    if ShapesList[I].Collidable then
+      ShapesList[I].Triangulate(false, @AddTriangle);
+
   if Mesh.CountVertices = 0 then
     raise Exception.Create('The scene assigned to TMeshCollider.Scene is empty (no collidable triangles)');
   Mesh.Finish;

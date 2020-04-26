@@ -20,7 +20,7 @@
   in the center of the window.
 
   Accepts command-line options from
-  http://castle-engine.sourceforge.net/openal.php }
+  https://castle-engine.io/openal.php }
 program doppler_demo;
 
 uses SysUtils, CastleVectors, CastleWindow, CastleColors, CastleGLUtils,
@@ -31,7 +31,7 @@ const
   ALDistanceScaling = 0.02;
 
 var
-  Window: TCastleWindowCustom;
+  Window: TCastleWindowBase;
   PreviousSoundPosition, SoundPosition, ListenerPosition: TVector3;
   { Playing sound. It may be @nil if we couldn't allocate it,
     which practically will happen only when OpenAL is not installed
@@ -78,40 +78,32 @@ var
   Buffer: TSoundBuffer;
   Parameters: TSoundParameters;
 begin
-  Window := TCastleWindowCustom.Create(Application);
+  Window := TCastleWindowBase.Create(Application);
 
   SoundEngine.ParseParameters;
-  SoundEngine.MinAllocatedSources := 1;
-  SoundEngine.ALContextOpen;
+  Buffer := SoundEngine.LoadBuffer('castle-data:/tone.wav');
+
+  //alDopplerFactor(3.0);
+
+  SoundPosition := Vector3(200, 300, 0);
+  PreviousSoundPosition := SoundPosition;
+  Parameters := TSoundParameters.Create;
   try
-    Buffer := SoundEngine.LoadBuffer('tone.wav');
+    Parameters.Buffer := Buffer;
+    Parameters.Spatial := true;
+    Parameters.Looping := true;
+    Parameters.Position := SoundPosition * ALDistanceScaling;
+    Sound := SoundEngine.PlaySound(Parameters);
+  finally FreeAndNil(Parameters) end;
 
-    //alDopplerFactor(3.0);
+  ListenerPosition := Vector3(300, 300, 0);
+  SoundEngine.UpdateListener(ListenerPosition * ALDistanceScaling,
+    Vector3(0, 1, 0), Vector3(0, 0, 1));
 
-    SoundPosition := Vector3(200, 300, 0);
-    PreviousSoundPosition := SoundPosition;
-    Parameters := TSoundParameters.Create;
-    try
-      Parameters.Buffer := Buffer;
-      Parameters.Spatial := true;
-      Parameters.Looping := true;
-      Parameters.Position := SoundPosition * ALDistanceScaling;
-      Sound := SoundEngine.PlaySound(Parameters);
-    finally FreeAndNil(Parameters) end;
-
-    ListenerPosition := Vector3(300, 300, 0);
-    SoundEngine.UpdateListener(ListenerPosition * ALDistanceScaling,
-      Vector3(0, 1, 0), Vector3(0, 0, 1));
-
-    Application.TimerMilisec := 1000;
-    Window.OnTimer := @Timer;
-    Window.OnRender := @Render;
-    Window.OnMotion := @Motion;
-    Window.SetDemoOptions(K_F11, CharEscape, true);
-    Window.OpenAndRun;
-  finally
-    SoundEngine.StopAllSources;
-    SoundEngine.FreeBuffer(Buffer);
-    SoundEngine.ALContextClose;
-  end;
+  Application.TimerMilisec := 1000;
+  Window.OnTimer := @Timer;
+  Window.OnRender := @Render;
+  Window.OnMotion := @Motion;
+  Window.SetDemoOptions(K_F11, CharEscape, true);
+  Window.OpenAndRun;
 end.

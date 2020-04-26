@@ -43,7 +43,7 @@ type
       value, and add it to Items.
       FieldOrEvent is added to FieldOrEvents list, so we keep
       all information. }
-    procedure Add(FieldOrEvent: TX3DFieldOrEvent);
+    procedure Add(FieldOrEvent: TX3DFieldOrEvent); reintroduce;
 
     procedure BeforeExecute;
     procedure AfterExecute(const Time: TX3DTime);
@@ -449,7 +449,6 @@ begin
           LastEventTime := Time;
           SendToEvent.Send(Field, Time);
         end else
-        if Log then
           WritelnLog('X3D Script', Format(
             'Sending event %s from Script ignored at <= timestamp (%f, while last event was on %f). Potential loop avoided',
             [ SendToEvent.X3DName, Time.Seconds, LastEventTime.Seconds ]));

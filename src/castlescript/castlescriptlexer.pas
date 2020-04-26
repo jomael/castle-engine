@@ -14,7 +14,7 @@
 }
 
 { @abstract(Lexer for CastleScript language, see
-  [http://castle-engine.sourceforge.net/castle_script.php].)
+  [https://castle-engine.io/castle_script.php].)
 
   For specification of tokens that this lexer understands,
   see documentation of CastleScriptParser unit. }
@@ -415,6 +415,7 @@ begin
     tokString: Result := Result + Format(' ''%s''', [TokenString]);
     tokIdentifier: Result := Result + Format(' %s', [TokenString]);
     tokFuncName: Result := Result + Format(' %s', [TokenFunctionClass.Name]);
+    else ;
   end;
 end;
 

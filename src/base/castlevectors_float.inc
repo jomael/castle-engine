@@ -90,8 +90,14 @@ function Matrix4Double(const V: TMatrix4): TMatrix4Double;
 
 { Convert string to vector. Each component is simply parsed by StrToFloat,
   and components must be separated by whitespace (see @link(WhiteSpaces) constant).
+  This is a reverse of
+  @link(TGenericVector2.ToString TVector2.ToString),
+  @link(TGenericVector3.ToString TVector3.ToString),
+  @link(TGenericVector4.ToString TVector4.ToString) methods.
+
   @raises(EConvertError In case of problems during conversion (invalid float
     or unexpected string end or expected but missed string end).)
+
   @groupBegin }
 function Vector2FromStr(const S: string): TVector2;
 function Vector3FromStr(const S: string): TVector3;
@@ -292,7 +298,7 @@ begin
     raise EConvertError.Create('Expected end of data when reading vector from string');
 end;
 
-function Vector3FromStr(const s: string): TVector3;
+function Vector3FromStr(const S: string): TVector3;
 var
   SPosition: Integer;
 begin
@@ -317,7 +323,7 @@ begin
   Result.Data[1] := StrToFloat(NextToken(S, SPosition));
   Result.Data[2] := StrToFloat(NextToken(S, SPosition));
   Result.Data[3] := StrToFloat(NextToken(S, SPosition));
-  if NextToken(s, SPosition) <> '' then
+  if NextToken(S, SPosition) <> '' then
     raise EConvertError.Create('Expected end of data when reading vector from string');
 end;
 

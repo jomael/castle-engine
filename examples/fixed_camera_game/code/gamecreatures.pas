@@ -1,21 +1,14 @@
 {
   Copyright 2007-2018 Michalis Kamburelis.
 
-  This file is part of "The Rift".
+  This file is part of "Castle Game Engine".
 
-  "The Rift" is free software; you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation; either version 2 of the License, or
-  (at your option) any later version.
+  "Castle Game Engine" is free software; see the file COPYING.txt,
+  included in this distribution, for details about the copyright.
 
-  "The Rift" is distributed in the hope that it will be useful,
+  "Castle Game Engine" is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with "The Rift"; if not, write to the Free Software
-  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
   ----------------------------------------------------------------------------
 }
@@ -214,11 +207,10 @@ begin
 
     Animations[S].Animation.Load(Animations[S].URL);
     Animations[S].Animation.PrepareResources(
-      [prRender, prBoundingBox, prShadowVolume], false, PrepareParams);
+      [prRenderSelf, prBoundingBox, prShadowVolume], false, PrepareParams);
     Animations[S].Duration := Animations[S].Animation.AnimationDuration('animation');
 
-    if Log then
-      WritelnLog('Creature Animation', 'Loaded ' + Animations[S].URL);
+    WritelnLog('Creature Animation', 'Loaded ' + Animations[S].URL);
   end;
 end;
 
@@ -308,7 +300,7 @@ procedure TCreature.Update(const SecondsPassed: Single; var RemoveMe: TRemoveTyp
     Scene := Kind.Animations[FState].Animation;
     Result := Scene;
     Scene.ForceAnimationPose('animation',
-      LifeTime - CurrentStateStartTime, paLooping);
+      LifeTime - CurrentStateStartTime, true);
   end;
 
   procedure UpdateChild;
@@ -375,13 +367,16 @@ constructor TPlayer.Create(AKind: TCreatureKind);
   procedure CreateTargetVisualize;
   var
     Sphere: TSphereNode;
+    Material: TMaterialNode;
   begin
     Sphere := TSphereNode.Create;
     Sphere.Radius := 0.1;
 
+    Material := TMaterialNode.Create;
+    Material.DiffuseColor := RedRGB;
+
     FTargetVisualizeShape := TShapeNode.Create;
-    FTargetVisualizeShape.Material := TMaterialNode.Create;
-    FTargetVisualizeShape.Material.DiffuseColor := RedRGB;
+    FTargetVisualizeShape.Material := Material;
     FTargetVisualizeShape.Geometry := Sphere;
 
     FTargetVisualize := TTransformNode.Create;

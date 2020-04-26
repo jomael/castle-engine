@@ -1,3 +1,4 @@
+{%MainUnit castlecontrols.pas}
 {
   Copyright 2017-2018 Michalis Kamburelis and Jan Adamec.
 
@@ -13,6 +14,39 @@
   ----------------------------------------------------------------------------
 }
 
+{ TODO:
+
+  The API of TCastleTableViewCell and TCastleTableView requires creating
+  ICastleTableViewDataSource instead of "just" adding
+  stuff by calling a method like "AddRow".
+  And it doesn't allow visual designing by CGE editor.
+
+  Compare this with TCastleVerticalGroup, to which you can add stuff like this:
+
+    Group := TCastleVerticalGroup.Create;
+    Group.InsertFront(Label1);
+    Group.InsertFront(Label2);
+
+  Ideally, we should have a grid component, that allows to add stuff in an easy
+  way like this:
+
+    Grid := TCastleGrid.Create(Owner);
+    Grid.Rows := 5;
+    Grid.Columns := 3;
+    Grid.Cells[0, 0] := Label1;
+    Grid.Cells[0, 2] := Label2;
+
+  or
+
+    Grid := TCastleGrid.Create(Owner);
+    Grid.Columns := 3;
+    GridRow1 := TCastleGridRow.Create(Owner);
+    GridRow1.InsertFront(Label1);
+    GridRow1.InsertFront(Label2);
+    GridRow1.InsertFront(Label3);
+    Grid.InsertFront(GridRow1);
+}
+
 {$ifdef read_interface}
 
   TCastleTableView = class;
@@ -21,48 +55,56 @@
   TCastleTableViewCellAccessoryType = (tvcaNone, tvcaCheckmark, tvcaDisclosureIndicator);
 
   { Cell inside @link(TCastleTableView). Do not create the cells by yourself,
-    use TableView datasource to fill data. }
+    use TableView datasource to fill data.
+
+    Cell is organized as:
+    @preformatted(
+    ---------------------------------------------------------------------
+    | ImageIcon | TextLabel ......   | AccessoryControl | AccessoryType |
+    ---------------------------------------------------------------------
+    )
+    }
   TCastleTableViewCell = class(TCastleRectangleControl)
-    strict private
-      FTextLabel: TCastleLabel;
-      FTag: Integer;
-      FAccessoryType: TCastleTableViewCellAccessoryType;
-      FAccessoryTypeImage: TCastleImageControl;
-      FAccessoryControl: TUIControl;
+  strict private
+    FTextLabel: TCastleLabel;
+    FImageIcon: TCastleImageControl;
+    FAccessoryType: TCastleTableViewCellAccessoryType;
+    FAccessoryTypeImage: TCastleImageControl;   // image representing the AccessoryType
+    FAccessoryControl: TCastleUserInterface;
 
-      procedure SetAccessoryControl(AControl: TUIControl);
+    procedure SetAccessoryControl(AControl: TCastleUserInterface);
 
-    private
-      procedure ReflectUIControls;
+  private
+    procedure ReflectUIControls;
 
-    public
-      constructor Create(AOwner: TComponent); override;
-      destructor Destroy; override;
-      procedure MakeEmpty;
+  public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+    procedure MakeEmpty;
 
-      { Use TextLabel.Caption to set the text visible on the cell. }
-      property TextLabel: TCastleLabel read FTextLabel;
-      { Decoration shown at the right cell border. }
-      property AccessoryType: TCastleTableViewCellAccessoryType
-                              read FAccessoryType write FAccessoryType default tvcaNone;
-      { Any custom control added at the right cell border (e.g. SwitchControl, ImageControl) }
-      property AccessoryControl: TUIControl
-                              read FAccessoryControl write SetAccessoryControl default nil;
-      { Custom data. }
-      property Tag: Integer read FTag write FTag default 0;
+    { Use TextLabel.Caption to set the text visible on the cell. }
+    property TextLabel: TCastleLabel read FTextLabel;
+    { Define the (square) image shown at the left cell border. }
+    property ImageIcon: TCastleImageControl read FImageIcon;
+    { Decoration shown at the right cell border. }
+    property AccessoryType: TCastleTableViewCellAccessoryType
+                            read FAccessoryType write FAccessoryType default tvcaNone;
+    { Any custom control added at the right cell border (e.g. SwitchControl, ImageControl) }
+    property AccessoryControl: TCastleUserInterface
+                            read FAccessoryControl write SetAccessoryControl default nil;
   end;
 
-  TCastleTableViewCellList = specialize TObjectList<TCastleTableViewCell>;
+  TCastleTableViewCellList = {$ifdef CASTLE_OBJFPC}specialize{$endif} TObjectList<TCastleTableViewCell>;
 
   { Data source used in @link(TCastleTableView). Implement this interface to
     populate data into the TableView. }
   ICastleTableViewDataSource = interface
-      { Return number of cells (rows). }
-      function TableViewNumberOfRows(Sender: TCastleTableView): Integer;
-      { Called when TableView needs the contents for the cell. TableView manages
-        its cells automatically. For example set Cell.TextLabel.Caption to
-        define the text displayed in the cell. }
-      procedure TableViewUpdateCell(Cell: TCastleTableViewCell; Row: Integer; Sender: TCastleTableView);
+    { Return number of cells (rows). }
+    function TableViewNumberOfRows(Sender: TCastleTableView): Integer;
+    { Called when TableView needs the contents for the cell. TableView manages
+      its cells automatically. For example set Cell.TextLabel.Caption to
+      define the text displayed in the cell. }
+    procedure TableViewUpdateCell(Cell: TCastleTableViewCell; Row: Integer; Sender: TCastleTableView);
   end;
 
   TTableViewDidSelectCellEvent = procedure(Row: Integer; Sender: TCastleTableView) of object;
@@ -73,38 +115,38 @@
     care of the rest. TableView control descends from @link(TCastleScrollView),
     so it shows the scrollbar when needed. }
   TCastleTableView = class(TCastleScrollView)
-    strict private
-      FDataSource: ICastleTableViewDataSource;
-      FCells: TCastleTableViewCellList;
-      FCellHeight: Integer;
+  strict private
+    FDataSource: ICastleTableViewDataSource;
+    FCells: TCastleTableViewCellList;
+    FCellHeight: Integer;
 
-      FOnDidSelectCell: TTableViewDidSelectCellEvent;
+    FOnDidSelectCell: TTableViewDidSelectCellEvent;
 
-      FPressPos: TVector2;
-      FMotionIsClick: boolean;
-    public
-      const
-        DefaultCellHeight = 50;
+    FPressPos: TVector2;
+    FMotionIsClick: boolean;
+  public
+    const
+      DefaultCellHeight = 50;
 
-      constructor Create(AOwner: TComponent); override;
-      destructor Destroy; override;
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
 
-      procedure ReloadData;
-      procedure SetDataSource(ADataSource: ICastleTableViewDataSource);
+    procedure ReloadData;
+    procedure SetDataSource(ADataSource: ICastleTableViewDataSource);
 
-      function Press(const Event: TInputPressRelease): boolean; override;
-      function Release(const Event: TInputPressRelease): boolean; override;
-      function Motion(const Event: TInputMotion): boolean; override;
-      procedure Update(const SecondsPassed: Single;
-        var HandleInput: boolean); override;
+    function Press(const Event: TInputPressRelease): boolean; override;
+    function Release(const Event: TInputPressRelease): boolean; override;
+    function Motion(const Event: TInputMotion): boolean; override;
+    procedure Update(const SecondsPassed: Single;
+      var HandleInput: boolean); override;
 
-      { TableView needs data source set in order to show some contents. }
-      property DataSource: ICastleTableViewDatasource read FDataSource write SetDataSource;
-      { Event called when cell was selected by user. }
-      property OnSelectCell: TTableViewDidSelectCellEvent
-                             read FOnDidSelectCell write FOnDidSelectCell;
-      { Height of all cells. }
-      property CellHeight: Integer read FCellHeight write FCellHeight default DefaultCellHeight;
+    { TableView needs data source set in order to show some contents. }
+    property DataSource: ICastleTableViewDatasource read FDataSource write SetDataSource;
+    { Event called when cell was selected by user. }
+    property OnSelectCell: TTableViewDidSelectCellEvent
+                           read FOnDidSelectCell write FOnDidSelectCell;
+    { Height of all cells. }
+    property CellHeight: Integer read FCellHeight write FCellHeight default DefaultCellHeight;
   end;
 
 {$endif read_interface}
@@ -117,9 +159,13 @@ constructor TCastleTableViewCell.Create(AOwner: TComponent);
 begin
   inherited;
   FTextLabel := TCastleLabel.Create(Self);
-  FTextLabel.Anchor(hpLeft, 5);
   FTextLabel.Anchor(vpMiddle);
+  FTextLabel.Color := White;
   InsertFront(FTextLabel);
+
+  FImageIcon := TCastleImageControl.Create(Self);
+  FImageIcon.Anchor(vpMiddle);
+  InsertFront(FImageIcon);
 
   FAccessoryTypeImage := nil;
   FAccessoryControl := nil;
@@ -135,13 +181,14 @@ end;
 procedure TCastleTableViewCell.MakeEmpty;
 begin
   TextLabel.Caption := '';
+  ImageIcon.Image := nil;
   AccessoryType := tvcaNone;
   AccessoryControl := nil;
   Tag := 0;
   Color := Vector4(0.0, 0.0, 0.0, 0.0); // transparent
 end;
 
-procedure TCastleTableViewCell.SetAccessoryControl(AControl: TUIControl);
+procedure TCastleTableViewCell.SetAccessoryControl(AControl: TCastleUserInterface);
 begin
   if AControl = FAccessoryControl then
     Exit;
@@ -164,7 +211,7 @@ end;
 
 procedure TCastleTableViewCell.ReflectUIControls;
 var
-  NextRight, Spacing: Integer;
+  NextLeft, NextRight, Spacing: Single;
 begin
   if FAccessoryType = tvcaNone then
   begin
@@ -194,22 +241,30 @@ begin
   end;
 
   // update horizontal positions
+  NextLeft := 5;
   NextRight := -5;
   Spacing := 8;
 
   if (FAccessoryTypeImage <> nil) and FAccessoryTypeImage.Exists then
   begin
     FAccessoryTypeImage.Anchor(hpRight, NextRight);
-    NextRight := NextRight - FAccessoryTypeImage.CalculatedWidth - Spacing;
+    NextRight := NextRight - FAccessoryTypeImage.EffectiveWidth - Spacing;
   end;
 
-  if (FAccessoryControl <> nil) and (FAccessoryControl.Exists) then
+  if (FAccessoryControl <> nil) and FAccessoryControl.Exists then
   begin
     FAccessoryControl.Anchor(hpRight, NextRight);
-    NextRight := NextRight - FAccessoryControl.CalculatedWidth - Spacing;
+    NextRight := NextRight - FAccessoryControl.EffectiveWidth - Spacing;
   end;
 
-  FTextLabel.MaxWidth := CalculatedWidth - 5 + NextRight;
+  if (FImageIcon.Image <> nil) and FImageIcon.Exists then
+  begin
+    FImageIcon.Anchor(hpLeft, NextLeft);
+    NextLeft := NextLeft + FImageIcon.EffectiveWidth + Spacing;
+  end;
+
+  FTextLabel.Anchor(hpLeft, NextLeft);
+  FTextLabel.MaxWidth := EffectiveWidth - NextLeft + NextRight;
 end;
 
 constructor TCastleTableView.Create(AOwner: TComponent);
@@ -233,7 +288,7 @@ procedure TCastleTableView.ReloadData;
 var
   I, ItemCount, OldCount: Integer;
   Cell: TCastleTableViewCell;
-  CellWidth, SeparatorHeight: Integer;
+  CellWidth, SeparatorHeight: Single;
 begin
   if ScrollbarVisible then
     CellWidth := Width - ScrollBarWidth
@@ -282,7 +337,7 @@ begin
   end;
 
   ScrollArea.Height := ItemCount * (CellHeight + SeparatorHeight);
-  ScrollArea.Width := CalculatedWidth;
+  ScrollArea.Width := EffectiveWidth;
 end;
 
 procedure TCastleTableView.Update(const SecondsPassed: Single;
@@ -290,7 +345,8 @@ procedure TCastleTableView.Update(const SecondsPassed: Single;
 var
   WasScrollbar: boolean;
   Cell: TCastleTableViewCell;
-  I, CellWidth: Integer;
+  I: Integer;
+  CellWidth: Single;
 begin
   WasScrollbar := ScrollbarVisible;
 
@@ -333,14 +389,14 @@ end;
 function TCastleTableView.Release(const Event: TInputPressRelease): boolean;
 var
   I: Integer;
-  CellRect: TRectangle;
+  CellRect: TFloatRectangle;
 begin
   Result := inherited;
   if Assigned(FOnDidSelectCell) and FMotionIsClick then
   begin
     for I := 0 to FCells.Count - 1 do
     begin
-      CellRect := FCells.Items[I].ScreenRect;
+      CellRect := FCells.Items[I].RenderRect;
       if CellRect.Contains(FPressPos) then
       begin
         FOnDidSelectCell(I, Self);

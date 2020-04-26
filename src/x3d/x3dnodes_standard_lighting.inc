@@ -27,28 +27,14 @@
       This is used by VRML 1.0 (and Inventor) light sources. }
     lsLocalVRML1);
 
-  { Base class for all VRML / X3D light nodes.
-
-    Note that even the old VRML 1.0 light nodes inherit from this.
-    Although they interpret some bits differently
-    ("ambientIntensity" < 0 has special meaning).
-    But most of the fields behave identically, they only have different
-    default values. }
+  { Base class for all the light nodes. }
   TAbstractLightNode = class(TAbstractChildNode)
   strict private
     FTransform, FInvertedTransform: TMatrix4;
-  strict private
-    function  GetProjectionSceneLocation: TVector3;
-    procedure SetProjectionSceneLocation(const Value: TVector3);
-    function  GetProjectionSceneDirection: TVector3;
-    procedure SetProjectionSceneDirection(const Value: TVector3);
   protected
     procedure BeforeTraverse(StateStack: TX3DGraphTraverseStateStack); override;
     procedure MiddleTraverse(StateStack: TX3DGraphTraverseStateStack); override;
-    function  GetProjectionLocationLocal: TVector3; virtual;
-    procedure SetProjectionLocationLocal(const Value: TVector3); virtual;
-    function  GetProjectionDirectionLocal: TVector3; virtual;
-    procedure SetProjectionDirectionLocal(const Value: TVector3); virtual;
+    procedure GroupBeforeTraverse(const State: TX3DGraphTraverseState; var WasPointingDeviceSensor: Boolean); override;
   public
     procedure CreateNode; override;
 
@@ -70,6 +56,76 @@
     strict private FFdShadowVolumes: TSFBool;
     public property FdShadowVolumes: TSFBool read FFdShadowVolumes;
 
+    strict private FFdEffects: TMFNode;
+    public property FdEffects: TMFNode read FFdEffects;
+
+    { Create TLightInstance record describing this light node under given
+      State. }
+    function CreateLightInstance(State: TX3DGraphTraverseState): TLightInstance;
+
+    { Update TLightInstance record when lighting State changes.
+      Assumes that LightInstance.Node = Self.
+
+      This will set LightInstance.Transform properties, and recalculate
+      all LightInstance properties based on Transform. }
+    procedure UpdateLightInstanceState(
+      var LightInstance: TLightInstance;
+      State: TX3DGraphTraverseState);
+
+    { Update TLightInstance record when lighting location/direction (and other
+      properties precalculated on TLightInstance) change.
+      Assumes that LightInstance.Node = Self. }
+    procedure UpdateLightInstance(
+      var LightInstance: TLightInstance); virtual;
+
+    { Light scope. Default implementation returns lsGlobal or lsLocal,
+      depending on "global" field value (this follows VRML/X3D >= 2.0 rules). }
+    function Scope: TLightScope; virtual;
+
+    { Transformation of this light node.
+      Beware: In X3D, light nodes can be instantiated many times within the scene,
+      with different transformations, so @italic(this transformation property
+      should not be used in general).
+
+      Use this only if you you know that light node occurs only once within the scene
+      (see [https://castle-engine.io/x3d_extensions.php#section_ext_shadow_maps]).
+      Or if you're fine with just getting an undefined transformation,
+      for any of the light instances.
+
+      This value is calculated during traversing. Last @link(BeforeTraverse) call for this
+      node sets this property. By default, it represents identity transformation.
+
+      @groupBegin }
+    property Transform: TMatrix4 read FTransform;
+    property InvertedTransform: TMatrix4 read FInvertedTransform;
+    { @groupEnd }
+
+    function TransformationChange: TNodeTransformationChange; override;
+
+    {$I auto_generated_node_helpers/x3dnodes_x3dlightnode.inc}
+  end;
+
+  { Base class for all "punctual" light nodes (that have a position and/or direction).
+
+    Note that even the old VRML 1.0 light nodes inherit from this.
+    Although they interpret some bits differently
+    ("ambientIntensity" < 0 has special meaning).
+    But most of the fields behave identically, they only have different
+    default values. }
+  TAbstractPunctualLightNode = class(TAbstractLightNode)
+  strict private
+    function  GetProjectionSceneLocation: TVector3;
+    procedure SetProjectionSceneLocation(const Value: TVector3);
+    function  GetProjectionSceneDirection: TVector3;
+    procedure SetProjectionSceneDirection(const Value: TVector3);
+  protected
+    function  GetProjectionLocationLocal: TVector3; virtual;
+    procedure SetProjectionLocationLocal(const Value: TVector3); virtual;
+    function  GetProjectionDirectionLocal: TVector3; virtual;
+    procedure SetProjectionDirectionLocal(const Value: TVector3); virtual;
+  public
+    procedure CreateNode; override;
+
     strict private FFdShadowVolumesMain: TSFBool;
     public property FdShadowVolumesMain: TSFBool read FFdShadowVolumesMain;
 
@@ -80,7 +136,7 @@
 
     strict private FFdProjectionNear: TSFFloat;
     { projectionNear / projectionFar / up are Kambi extensions, see
-      [http://castle-engine.sourceforge.net/x3d_extensions_shadow_maps.php#section_light_parameters] }
+      [https://castle-engine.io/x3d_extensions_shadow_maps.php#section_light_parameters] }
     public property FdProjectionNear: TSFFloat read FFdProjectionNear;
 
     strict private FFdProjectionFar: TSFFloat;
@@ -94,27 +150,6 @@
 
     strict private FFdShadows: TSFBool;
     public property FdShadows: TSFBool read FFdShadows;
-
-    strict private FFdEffects: TMFNode;
-    public property FdEffects: TMFNode read FFdEffects;
-
-    { Transformation of this light node.
-      Beware: In X3D, light nodes can be instantiated many times within the scene,
-      with different transformations, so @italic(this transformation property
-      should not be used in general).
-
-      Use this only if you you know that light node occurs only once within the scene
-      (see [http://castle-engine.sourceforge.net/x3d_extensions.php#section_ext_shadow_maps]).
-      Or if you're fine with just getting an undefined transformation,
-      for any of the light instances.
-
-      This value is calculated during traversing. Last @link(BeforeTraverse) call for this
-      node sets this property. By default, it represents identity transformation.
-
-      @groupBegin }
-    property Transform: TMatrix4 read FTransform;
-    property InvertedTransform: TMatrix4 read FInvertedTransform;
-    { @groupEnd }
 
     { Matrices for rendering shadow map from this light.
       Identity in this class, override for subclasses able to do shadow mapping.
@@ -169,31 +204,6 @@
     procedure Box3DDistances(const Box: TBox3D;
       out MinDistance, MaxDistance: Single); virtual; abstract;
 
-    { Create TLightInstance record describing this light node under given
-      State. }
-    function CreateLightInstance(State: TX3DGraphTraverseState): TLightInstance;
-
-    { Update TLightInstance record when lighting State changes.
-      Assumes that LightInstance.Node = Self.
-
-      This will set LightInstance.Transform properties, and recalculate
-      all LightInstance properties based on Transform. }
-    procedure UpdateLightInstanceState(
-      var LightInstance: TLightInstance;
-      State: TX3DGraphTraverseState);
-
-    { Update TLightInstance record when lighting location/direction (and other
-      properties precalculated on TLightInstance) change.
-      Assumes that LightInstance.Node = Self. }
-    procedure UpdateLightInstance(
-      var LightInstance: TLightInstance); virtual;
-
-    function TransformationChange: TNodeTransformationChange; override;
-
-    { Light scope. Default implementation returns lsGlobal or lsLocal,
-      depending on "global" field value (this follows VRML/X3D >= 2.0 rules). }
-    function Scope: TLightScope; virtual;
-
     { Position and direction expressed in homogeneous coordinates.
       For positional lights, the last component is always 1.
       For directional lights, the last component is always 0.
@@ -201,11 +211,11 @@
       Note that this is expressed in the local light node coordinate system. }
     function PositionAndDirection: TVector4; virtual; abstract;
 
-    {$I auto_generated_node_helpers/x3dnodes_x3dlightnode.inc}
+    {$I auto_generated_node_helpers/x3dnodes_x3dpunctuallightnode.inc}
   end;
 
   { Base class for all directional lights. }
-  TAbstractDirectionalLightNode = class(TAbstractLightNode)
+  TAbstractDirectionalLightNode = class(TAbstractPunctualLightNode)
   strict private
     function GetDirection: TVector3;
     procedure SetDirection(const Value: TVector3);
@@ -245,7 +255,7 @@
   end;
 
   { Base class for all positional lights. }
-  TAbstractPositionalLightNode = class(TAbstractLightNode)
+  TAbstractPositionalLightNode = class(TAbstractPunctualLightNode)
   strict private
     function GetAttenuation: TVector3;
     procedure SetAttenuation(const Value: TVector3);
@@ -328,7 +338,6 @@
   TDirectionalLightNode = class(TAbstractDirectionalLightNode)
   public
     procedure CreateNode; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     class function ForVRMLVersion(const Version: TX3DVersion): boolean;
       override;
@@ -342,7 +351,6 @@
   TPointLightNode = class(TAbstractPointLightNode)
   public
     procedure CreateNode; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     class function ForVRMLVersion(const Version: TX3DVersion): boolean;
       override;
@@ -362,7 +370,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdBeamWidth: TSFFloat;
     public property FdBeamWidth: TSFFloat read FFdBeamWidth;
@@ -410,6 +417,11 @@
   end;
   TSpotLightNode_2 = TSpotLightNode;
 
+  TEnvironmentLightNode = class(TAbstractLightNode)
+  public
+    {$I auto_generated_node_helpers/x3dnodes_environmentlight.inc}
+  end;
+
 {$endif read_interface}
 
 {$ifdef read_implementation}
@@ -417,6 +429,8 @@ const
   FallbackProjectionNear = 1;
   FallbackProjectionFar = 100;
   FallbackProjectionRectangle: TVector4 = (Data: (-10, -10, 10, 10));
+
+{ TAbstractLightNode --------------------------------------------------------- }
 
 procedure TAbstractLightNode.CreateNode;
 begin
@@ -446,6 +460,145 @@ begin
    FdShadowVolumes.AddAlternativeName('kambiShadows', 0);
    FdShadowVolumes.ChangesAlways := [chLightForShadowVolumes];
   AddField(FFdShadowVolumes);
+
+  FFdEffects := TMFNode.Create(Self, false, 'effects', [TEffectNode]);
+   FdEffects.ChangesAlways := [chEverything];
+  AddField(FFdEffects);
+
+  DefaultContainerField := 'children';
+
+  FTransform := TMatrix4.Identity;
+  FInvertedTransform := TMatrix4.Identity;
+end;
+
+procedure TAbstractLightNode.BeforeTraverse(
+  StateStack: TX3DGraphTraverseStateStack);
+begin
+  inherited;
+
+  FTransform := StateStack.Top.Transform;
+  FInvertedTransform := StateStack.Top.InvertedTransform;
+end;
+
+procedure TAbstractLightNode.MiddleTraverse(StateStack: TX3DGraphTraverseStateStack);
+begin
+  inherited;
+  if Scope = lsLocalVRML1 then
+    StateStack.Top.AddLight(CreateLightInstance(StateStack.Top));
+end;
+
+function TAbstractLightNode.Scope: TLightScope;
+begin
+  if FdGlobal.Value then
+    Result := lsGlobal
+  else
+    Result := lsLocal;
+end;
+
+procedure TAbstractLightNode.GroupBeforeTraverse(const State: TX3DGraphTraverseState; var WasPointingDeviceSensor: Boolean);
+begin
+  inherited;
+  if Scope = lsLocal then
+  begin
+    (*We append lights with lsLocal scope (global=FALSE and VRML/X3D >= 2.0)
+      to the current State.
+
+      It may seem wasteful to enumerate children twice
+      (first we enumerate in TAbstractGroupingNode.BeforeTraverse,
+      then actual TX3DNode.Traverse enumerates again,
+      this time recursively time). But it turned out to
+      be the fastest and simplest method of propagating lsLocal lights
+      correctly...
+
+      Other (rejected) approach was to add ParentGroup to TLightInstance
+      and do it as post-processing step, i.e. in TCastleSceneCore in
+      AddGlobalLights take this ParentGroup and add light everywhere.
+      But that was
+
+      1. even slower, since it must traverse ParentGroup once again
+         for each directional light, and for each shape within this ParentGroup,
+         it must find all it's occurrences inside Shapes, and add light there
+
+      2. it fails ugly in case of DEF / USE of shapes.
+
+         See demo_models/lights_materials/directional_light_scope.wrl test. Imagine
+         (simplified VRML below) :
+
+           Group {
+             DEF S Shape { .... some sphere .... }
+             Group {
+               USE S
+               DirectionalLight { }
+               USE S
+             }
+             USE S
+           }
+
+         What would happen here? ParentGroup.Enumerate would find S *two* times.
+         For each of these occurrences, it would find *four* shapes with
+         matching node value. So 1. all four spheres would be lighted (incorrect,
+         only two spheres in the middle should be lighted) 2. all of them would
+         be lighted two times by the same light... Fix for 1st problem would
+         require us to record some list of parents within State (which would
+         awfully slow down Traverse work, that already is too crowded). Fix for 2nd
+         problem would require some intelligent avoiding of duplicates
+         (set light only for first node, that is both matching and has the light
+         not set yet).
+
+         So fixing the above solution would be quite more convoluted and slower
+         than simple, correct solution below.
+
+    *)
+
+    { Note: We do CreateLightInstance with State from TAbstractGroupingNode node,
+      while precisely we should rather use State from TAbstractLightNode
+      traverse. But, fortunately, State of TAbstractLightNode doesn't
+      change inside (TAbstractLightNode doesn't do anything inside
+      BeforeTraverse), so this is the same thing. }
+
+    { TODO: we ignore here light radius, which may be relevant
+      for TAbstractPositionalLightNode with HasRadius = true.
+      E.g. PointLight with global = false should be limited by *both*
+      scope (in graph hierarchy) and radius, as far as I understand. }
+
+    State.AddLight(CreateLightInstance(State));
+  end;
+end;
+
+function TAbstractLightNode.CreateLightInstance(
+  State: TX3DGraphTraverseState): TLightInstance;
+begin
+  Result.Node := Self;
+  Result.WorldCoordinates := false;
+  UpdateLightInstanceState(Result, State);
+end;
+
+procedure TAbstractLightNode.UpdateLightInstanceState(
+  var LightInstance: TLightInstance;
+  State: TX3DGraphTraverseState);
+begin
+  LightInstance.Transform := State.Transform;
+  LightInstance.TransformScale := State.TransformScale;
+  UpdateLightInstance(LightInstance);
+end;
+
+procedure TAbstractLightNode.UpdateLightInstance(
+  var LightInstance: TLightInstance);
+begin
+  { Nothing to do in this class. }
+  Assert(LightInstance.Node = Self);
+end;
+
+function TAbstractLightNode.TransformationChange: TNodeTransformationChange;
+begin
+  Result := ntcLight;
+end;
+
+{ TAbstractPunctualLightNode --------------------------------------------------------- }
+
+procedure TAbstractPunctualLightNode.CreateNode;
+begin
+  inherited;
 
   FFdShadowVolumesMain := TSFBool.Create(Self, true, 'shadowVolumesMain', false);
    FdShadowVolumesMain.AddAlternativeName('kambiShadowsMain', 0);
@@ -483,87 +636,69 @@ begin
   FFdShadows := TSFBool.Create(Self, false, 'shadows', false);
    FdShadows.ChangesAlways := [chShadowMaps];
   AddField(FFdShadows);
-
-  FFdEffects := TMFNode.Create(Self, false, 'effects', [TEffectNode]);
-   FdEffects.ChangesAlways := [chEverything];
-  AddField(FFdEffects);
-
-  DefaultContainerField := 'children';
-
-  FTransform := TMatrix4.Identity;
-  FInvertedTransform := TMatrix4.Identity;
 end;
 
-procedure TAbstractLightNode.BeforeTraverse(
-  StateStack: TX3DGraphTraverseStateStack);
-begin
-  inherited;
-
-  FTransform := StateStack.Top.Transform;
-  FInvertedTransform := StateStack.Top.InvertedTransform;
-end;
-
-function TAbstractLightNode.ProjectionMatrix: TMatrix4;
+function TAbstractPunctualLightNode.ProjectionMatrix: TMatrix4;
 begin
   Result := TMatrix4.Identity;
 end;
 
-function TAbstractLightNode.ModelviewMatrix: TMatrix4;
+function TAbstractPunctualLightNode.ModelviewMatrix: TMatrix4;
 begin
   Result := TMatrix4.Identity;
 end;
 
-function TAbstractLightNode.ModelviewRotationMatrix: TMatrix4;
+function TAbstractPunctualLightNode.ModelviewRotationMatrix: TMatrix4;
 begin
   Result := TMatrix4.Identity;
 end;
 
-function TAbstractLightNode.GetProjectorMatrix: TMatrix4;
+function TAbstractPunctualLightNode.GetProjectorMatrix: TMatrix4;
 begin
   Result := ProjectionMatrix * ModelviewMatrix;
 end;
 
-function TAbstractLightNode.GetProjectionLocationLocal: TVector3;
+function TAbstractPunctualLightNode.GetProjectionLocationLocal: TVector3;
 begin
   Result := TVector3.Zero;
 end;
 
-procedure TAbstractLightNode.SetProjectionLocationLocal(const Value: TVector3);
+procedure TAbstractPunctualLightNode.SetProjectionLocationLocal(const Value: TVector3);
 begin
   { ignored }
 end;
 
-function TAbstractLightNode.GetProjectionDirectionLocal: TVector3;
+function TAbstractPunctualLightNode.GetProjectionDirectionLocal: TVector3;
 begin
   Result := TVector3.Zero;
 end;
 
-procedure TAbstractLightNode.SetProjectionDirectionLocal(const Value: TVector3);
+procedure TAbstractPunctualLightNode.SetProjectionDirectionLocal(const Value: TVector3);
 begin
   { ignored }
 end;
 
-function TAbstractLightNode.GetProjectionSceneLocation: TVector3;
+function TAbstractPunctualLightNode.GetProjectionSceneLocation: TVector3;
 begin
   Result := Transform.MultPoint(ProjectionLocationLocal);
 end;
 
-procedure TAbstractLightNode.SetProjectionSceneLocation(const Value: TVector3);
+procedure TAbstractPunctualLightNode.SetProjectionSceneLocation(const Value: TVector3);
 begin
   ProjectionLocationLocal := InvertedTransform.MultPoint(Value);
 end;
 
-function TAbstractLightNode.GetProjectionSceneDirection: TVector3;
+function TAbstractPunctualLightNode.GetProjectionSceneDirection: TVector3;
 begin
   Result := Transform.MultDirection(ProjectionDirectionLocal);
 end;
 
-procedure TAbstractLightNode.SetProjectionSceneDirection(const Value: TVector3);
+procedure TAbstractPunctualLightNode.SetProjectionSceneDirection(const Value: TVector3);
 begin
   ProjectionDirectionLocal := InvertedTransform.MultDirection(Value);
 end;
 
-procedure TAbstractLightNode.GetView(out Pos, Dir, Side, Up: TVector3);
+procedure TAbstractPunctualLightNode.GetView(out Pos, Dir, Side, Up: TVector3);
 begin
   Pos := ProjectionSceneLocation;
   Dir := ProjectionSceneDirection;
@@ -588,48 +723,7 @@ begin
   Up := TVector3.CrossProduct(Side, Dir);
 end;
 
-function TAbstractLightNode.CreateLightInstance(
-  State: TX3DGraphTraverseState): TLightInstance;
-begin
-  Result.Node := Self;
-  Result.WorldCoordinates := false;
-  UpdateLightInstanceState(Result, State);
-end;
-
-procedure TAbstractLightNode.UpdateLightInstanceState(
-  var LightInstance: TLightInstance;
-  State: TX3DGraphTraverseState);
-begin
-  LightInstance.Transform := State.Transform;
-  LightInstance.TransformScale := State.TransformScale;
-  UpdateLightInstance(LightInstance);
-end;
-
-procedure TAbstractLightNode.UpdateLightInstance(
-  var LightInstance: TLightInstance);
-begin
-  { Nothing to do in this class. }
-  Assert(LightInstance.Node = Self);
-end;
-
-procedure TAbstractLightNode.MiddleTraverse(StateStack: TX3DGraphTraverseStateStack);
-begin
-  inherited;
-  if Scope = lsLocalVRML1 then
-    StateStack.Top.AddLight(CreateLightInstance(StateStack.Top));
-end;
-
-function TAbstractLightNode.TransformationChange: TNodeTransformationChange;
-begin
-  Result := ntcLight;
-end;
-
-function TAbstractLightNode.Scope: TLightScope;
-begin
-  if FdGlobal.Value then
-    Result := lsGlobal else
-    Result := lsLocal;
-end;
+{ TAbstractDirectionalLightNode ---------------------------------------------- }
 
 procedure TAbstractDirectionalLightNode.CreateNode;
 begin
@@ -926,13 +1020,6 @@ begin
   DefaultContainerField := 'children';
 end;
 
-class function TDirectionalLightNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
 class function TDirectionalLightNode.ForVRMLVersion(const Version: TX3DVersion): boolean;
 begin
   Result := Version.Major >= 2;
@@ -945,13 +1032,6 @@ begin
   FdGlobal.Value := true;
 
   DefaultContainerField := 'children';
-end;
-
-class function TPointLightNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 class function TPointLightNode.ForVRMLVersion(const Version: TX3DVersion): boolean;
@@ -993,13 +1073,6 @@ end;
 class function TSpotLightNode.ClassX3DType: string;
 begin
   Result := 'SpotLight';
-end;
-
-class function TSpotLightNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 class function TSpotLightNode.ForVRMLVersion(const Version: TX3DVersion): boolean;
@@ -1095,7 +1168,7 @@ begin
     GL_SPOT_EXPONENT is an exponent for cosinus.
     beamWidth says to use constant intensity within beamWidth angle,
     and linear drop off to cutOffAngle.
-    See [http://castle-engine.sourceforge.net/vrml_engine_doc/output/xsl/html/chapter.opengl_rendering.html#section.vrml_lights]
+    See [https://castle-engine.io/vrml_engine_doc/output/xsl/html/chapter.opengl_rendering.html#section.vrml_lights]
     for more discussion. }
 
   if FdBeamWidth.Value >= FdCutOffAngle.Value then
@@ -1103,12 +1176,15 @@ begin
     Result := Clamped(0.5 / Max(FdBeamWidth.Value, 0.0001), 0.0, 128.0);
 end;
 
+{ TEnvironmentLightNode ------------------------------------------------------ }
+
 procedure RegisterLightingNodes;
 begin
   NodesManager.RegisterNodeClasses([
     TDirectionalLightNode,
     TPointLightNode,
-    TSpotLightNode
+    TSpotLightNode,
+    TEnvironmentLightNode
   ]);
 end;
 

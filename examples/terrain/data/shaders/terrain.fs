@@ -1,5 +1,5 @@
 /* OpenGL shader effect (used to enhance the Castle Game Engine shaders,
-   see https://castle-engine.sourceforge.io/compositing_shaders.php ),
+   see https://castle-engine.io/compositing_shaders.php ),
    applied over terrain.
 
    This adjusts terrain color, mixing textures, based on current height. */
@@ -25,7 +25,7 @@ uniform float h3; // below is tex_3 mixed with tex_2
 varying vec3 terrain_position;
 varying vec3 terrain_normal;
 
-void PLUG_texture_apply(inout vec4 fragment_color, const in vec3 normal)
+void PLUG_main_texture_apply(inout vec4 fragment_color, const in vec3 normal)
 {
   vec4 tex;
   float h = terrain_position.y;

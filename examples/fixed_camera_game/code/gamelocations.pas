@@ -1,21 +1,14 @@
 {
   Copyright 2008-2018 Michalis Kamburelis.
 
-  This file is part of "The Rift".
+  This file is part of "Castle Game Engine".
 
-  "The Rift" is free software; you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation; either version 2 of the License, or
-  (at your option) any later version.
+  "Castle Game Engine" is free software; see the file COPYING.txt,
+  included in this distribution, for details about the copyright.
 
-  "The Rift" is distributed in the hope that it will be useful,
+  "Castle Game Engine" is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with "The Rift"; if not, write to the Free Software
-  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
   ----------------------------------------------------------------------------
 }
@@ -36,9 +29,9 @@ type
     type
       TLocationScene = class(TCastleScene)
       private
-        Image, ShadowedImage: TGLImage;
+        Image, ShadowedImage: TDrawableImage;
       public
-        SceneManagerRect: TRectangle;
+        ViewportRect: TRectangle;
         RenderInternalModel: boolean;
         procedure LocalRender(const Params: TRenderParams); override;
       end;
@@ -48,7 +41,7 @@ type
     FShadowedImageURL: string;
     FSceneURL: string;
     FScene: TLocationScene;
-    FImage, FShadowedImage: TGLImage;
+    FImage, FShadowedImage: TDrawableImage;
     FSceneCameraDescription: string;
     FPlayerPosition: TVector3;
     FPlayerDirection: TVector3;
@@ -75,8 +68,8 @@ type
     property PlayerUp: TVector3 read FPlayerUp;
 
     property Scene: TLocationScene read FScene;
-    property Image: TGLImage read FImage;
-    property ShadowedImage: TGLImage read FShadowedImage;
+    property Image: TDrawableImage read FImage;
+    property ShadowedImage: TDrawableImage read FShadowedImage;
   end;
 
   TLocationList = class(specialize TObjectList<TLocation>)
@@ -104,17 +97,17 @@ procedure TLocation.TLocationScene.LocalRender(const Params: TRenderParams);
 
   { Draw Image centered on screen, to fit inside the scene manager rect,
     matching the 3D scene projection. }
-  procedure DrawImage(const Image: TGLImage);
+  procedure DrawImage(const Image: TDrawableImage);
   var
     DrawRect: TRectangle;
   begin
-    { Draw Image such that Image.Height always fills the SceneManagerRect.Height,
+    { Draw Image such that Image.Height always fills the ViewportRect.Height,
       because that is the field of view of 3D scene,
       and that was the field of view used to render the image in Blender. }
-    DrawRect := Image.Rect.ScaleToHeight(SceneManagerRect.Height);
+    DrawRect := Image.Rect.ScaleToHeight(ViewportRect.Height);
     { above calculated DrawRect size OK, but DrawRect position (Left, Bottom)
       should be fixed now. }
-    DrawRect := SceneManagerRect.CenterInside(DrawRect.Width, DrawRect.Height);
+    DrawRect := ViewportRect.CenterInside(DrawRect.Width, DrawRect.Height);
     Image.Draw(DrawRect);
   end;
 
@@ -132,9 +125,9 @@ begin
       rendering with rmDepth will not initialize some material stuff. }
     Attributes.Mode := rmDepth;
 
-    RenderContext.ColorMask := false;
+    RenderContext.ColorChannels := [];
     inherited;
-    RenderContext.ColorMask := true;
+    RenderContext.ColorChannels := [0..3];
 
     { Render the 2D image covering the location.
 
@@ -145,10 +138,10 @@ begin
       To work correctly, the location scene must be rendered before creatures
       (like Player) scenes (otherwise Image.Draw would unconditionally cover
       the the Player). This is satisfied, since CurrentLocation.Scene
-      is first in SceneManager.Items. }
+      is first in Viewport.Items. }
 
     if (not Params.Transparent) and
-       (Params.ShadowVolumesReceivers = ReceiveShadowVolumes) then
+       (ReceiveShadowVolumes in Params.ShadowVolumesReceivers) then
     begin
       { Nole that the 3 lines that save, set and restore RenderContext.ProjectionMatrix
         are necessary only in case GLFeatures.EnableFixedFunction = true,
@@ -156,7 +149,7 @@ begin
         When GLFeatures.EnableFixedFunction = false,
         then rendering Image doesn't need to have a projection matrix set. }
       SavedProjectionMatrix := RenderContext.ProjectionMatrix;
-      OrthoProjection(FloatRectangle(SceneManagerRect)); // need 2D projection
+      OrthoProjection(FloatRectangle(ViewportRect)); // need 2D projection
 
       if Params.InShadow then
         DrawImage(ShadowedImage)
@@ -183,8 +176,8 @@ begin
   if Loaded then Exit;
   Loaded := true;
 
-  FImage := TGLImage.Create(ImageURL, [TRGBImage]);
-  FShadowedImage := TGLImage.Create(ShadowedImageURL, [TRGBImage]);
+  FImage := TDrawableImage.Create(ImageURL, [TRGBImage]);
+  FShadowedImage := TDrawableImage.Create(ShadowedImageURL, [TRGBImage]);
 
   FScene := TLocationScene.Create(nil);
   FScene.Spatial := [ssRendering, ssDynamicCollisions];
@@ -197,7 +190,7 @@ begin
     and change location Image to *not* contain location shadows "baked". }
   FScene.CastShadowVolumes := false;
   FScene.Load(SceneURL, true);
-  FScene.PrepareResources([prRender, prBoundingBox], false, PrepareParams);
+  FScene.PrepareResources([prRenderSelf, prBoundingBox], false, PrepareParams);
   FScene.Image := Image;
   FScene.ShadowedImage := ShadowedImage;
 end;

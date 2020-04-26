@@ -21,7 +21,7 @@
   { Transform children by an explicit 4x4 matrix.
 
     This is an extension, not present in the X3D standard.
-    See http://castle-engine.sourceforge.net/x3d_extensions.php#section_ext_matrix_transform .
+    See https://castle-engine.io/x3d_extensions.php#section_ext_matrix_transform .
     It is compatible with InstantReality,
     see http://instant-reality.com/documentation/nodetype/MatrixTransform/ . }
   TMatrixTransformNode = class(TAbstractX3DGroupingNode, ITransformNode)
@@ -31,7 +31,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
     class function ForVRMLVersion(const Version: TX3DVersion): boolean;
       override;
     function TransformationChange: TNodeTransformationChange; override;
@@ -44,14 +43,13 @@
   TMatrixTransformNode_2 = TMatrixTransformNode;
 
   { Teapot geometry, useful for testing purposes.
-    See http://castle-engine.sourceforge.net/x3d_extensions.php#section_ext_teapot . }
+    See https://castle-engine.io/x3d_extensions.php#section_ext_teapot . }
   TTeapotNode = class(TAbstractGeometryNode)
   protected
     function DirectEnumerateActive(Func: TEnumerateChildrenFunction): Pointer; override;
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdSize: TSFVec3f;
     public property FdSize: TSFVec3f read FFdSize;
@@ -76,19 +74,16 @@
   end;
 
   { X3D events logging.
-    See http://castle-engine.sourceforge.net/x3d_extensions.php#section_ext_logger . }
+    See https://castle-engine.io/x3d_extensions.php#section_ext_logger . }
   TLoggerNode = class(TAbstractChildNode)
   strict private
-    WriteStream: TStream;
-    OwnsWriteStream: boolean;
-    WriteStreamInitialized: boolean;
+    LogFileStream: TStream;
     procedure EventWriteReceive(
       Event: TX3DEvent; Value: TX3DField; const Time: TX3DTime);
   public
     procedure CreateNode; override;
     destructor Destroy; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdLevel: TSFInt32;
     public property FdLevel: TSFInt32 read FFdLevel;
@@ -112,7 +107,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdEnabled: TSFBool;
     public property FdEnabled: TSFBool read FFdEnabled;
@@ -128,7 +122,7 @@
 
   { Texture with contents created by rendering the scene from a specific
     viewpoint. }
-  TRenderedTextureNode = class(TAbstractTextureNode)
+  TRenderedTextureNode = class(TAbstractSingleTextureNode)
   strict private
     FGeneratedTextureHandler: TGeneratedTextureHandler;
   public
@@ -136,7 +130,6 @@
     destructor Destroy; override;
 
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     property GeneratedTextureHandler: TGeneratedTextureHandler
       read FGeneratedTextureHandler;
@@ -225,7 +218,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdSize: TSFVec2f;
     public property FdSize: TSFVec2f read FFdSize;
@@ -254,7 +246,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdStatus: TSFBool;
     public property FdStatus: TSFBool read FFdStatus;
@@ -297,28 +288,23 @@
   TCommonSurfaceShaderNode = class(TAbstractShaderNode)
   strict private
     type
-      TCommonSurfaceShaderInfo = class(TMaterialInfo)
+      TCommonSurfaceShaderInfo = class(TPhongMaterialInfo)
       strict private
         FNode: TCommonSurfaceShaderNode;
+      protected
+        function GetDiffuseColor: TVector3; override;
+        procedure SetDiffuseColor(const Value: TVector3); override;
+        function GetSpecularColor: TVector3; override;
+        procedure SetSpecularColor(const Value: TVector3); override;
       public
         constructor Create(ANode: TCommonSurfaceShaderNode);
 
         function AmbientColor: TVector3; override;
-        function DiffuseColor: TVector3; override;
-        function SpecularColor: TVector3; override;
         function EmissiveColor: TVector3; override;
         function Shininess: Single; override;
         function ReflectionColor: TVector3; override;
         function TransmissionColor: TVector3; override;
         function Transparency: Single; override;
-
-        function ReflSpecular: TVector3; override;
-        function ReflDiffuse: TVector3; override;
-        function TransSpecular: TVector3; override;
-        function TransDiffuse: TVector3; override;
-
-        function ReflSpecularExp: Single; override;
-        function TransSpecularExp: Single; override;
       end;
     var
       FMaterialInfo: TMaterialInfo;
@@ -326,7 +312,6 @@
     procedure CreateNode; override;
     destructor Destroy; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdAlphaFactor: TSFFloat;
     public property FdAlphaFactor: TSFFloat read FFdAlphaFactor;
@@ -538,7 +523,7 @@
     strict private FFdTextureTransformEnabled: TMFBool;
     public property FdTextureTransformEnabled: TMFBool read FFdTextureTransformEnabled;
 
-    { Shininess expressed an an exponent for shading equations.
+    { Shininess expressed as an exponent for shading equations.
       This is just @link(ShininessFactor) * 128. }
     function ShininessFactorExp: Single;
 
@@ -553,6 +538,39 @@
     function MaterialInfo: TMaterialInfo;
 
     {$I auto_generated_node_helpers/x3dnodes_commonsurfaceshader.inc}
+  end;
+
+  { Display a 2D image as a background. }
+  TImageBackgroundNode = class(TAbstractBackgroundNode)
+  protected
+    function DirectEnumerateActive(Func: TEnumerateChildrenFunction): Pointer; override;
+  public
+    procedure CreateNode; override;
+    class function ClassX3DType: string; override;
+
+    strict private FFdColor: TSFColorRGBA;
+    { @seealso Color }
+    public property FdColor: TSFColorRGBA read FFdColor;
+
+    strict private FFdTexture: TSFNode;
+    { @seealso Texture }
+    public property FdTexture: TSFNode read FFdTexture;
+
+    strict private FFdTexCoords: TMFVec2f;
+    { Texture coordinates of the full-screen quad.
+      By default they use the whole texture area:
+
+      @orderedList(
+        @item Vector2(0, 0),
+        @item Vector2(1, 0),
+        @item Vector2(1, 1),
+        @item Vector2(0, 1)
+      )
+
+      It is undefined what happens if there are not exactly 4 items. }
+    public property FdTexCoords: TMFVec2f read FFdTexCoords;
+
+    {$I auto_generated_node_helpers/x3dnodes_imagebackground.inc}
   end;
 {$endif read_interface}
 
@@ -571,12 +589,6 @@ end;
 class function TMatrixTransformNode.ClassX3DType: string;
 begin
   Result := 'MatrixTransform';
-end;
-
-class function TMatrixTransformNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    URNMatchingCastle(URN, ClassX3DType);
 end;
 
 class function TMatrixTransformNode.ForVRMLVersion(const Version: TX3DVersion): boolean;
@@ -612,9 +624,8 @@ begin
     State.InvertedTransform := InvertedMatrix * State.InvertedTransform;
   end else
   begin
-    if Log then
-      WritelnLogMultiline('Matrix',
-        'Cannot invert matrix:' + NL + M.ToRawString('  '));
+    WritelnLogMultiline('Matrix',
+      'Cannot invert matrix:' + NL + M.ToRawString('  '));
 
     { When determinant is zero, we treat inverted matrix
       like identity (like in TMatrixTransformNode_1.Transformation).
@@ -655,23 +666,18 @@ begin
   Result := 'Teapot';
 end;
 
-class function TTeapotNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    URNMatchingCastle(URN, ClassX3DType);
-end;
-
 function TTeapotNode.Proxy(var State: TX3DGraphTraverseState;
   const OverTriangulate: boolean): TAbstractGeometryNode;
 const
-  // Uncomment these if you need to temporarily compile without teapot.inc.
+  // Uncomment these if you need to temporarily compile without
+  // auto_generated_teapot/teapot.inc.
   {
   TeapotCoord: array [0..0] of TVector3 = ((Data: (0, 0, 0)));
   TeapotCoordIndex: array [0..0] of LongInt = (0);
   TeapotManifoldCoord: array [0..0] of TVector3 = ((Data: (0, 0, 0)));
   TeapotManifoldCoordIndex: array [0..0] of LongInt = (0);
   }
-  {$I teapot/teapot.inc}
+  {$I auto_generated_teapot/teapot.inc}
 var
   CoordNode: TCoordinateNode;
   IFS: TIndexedFaceSetNode absolute Result;
@@ -752,41 +758,37 @@ end;
 
 destructor TLoggerNode.Destroy;
 begin
-  if WriteStreamInitialized then
-  begin
-    if OwnsWriteStream then
-      FreeAndNil(WriteStream);
-  end;
-
+  FreeAndNil(LogFileStream);
   inherited;
 end;
 
 procedure TLoggerNode.EventWriteReceive(
   Event: TX3DEvent; Value: TX3DField; const Time: TX3DTime);
 
-  procedure StdOutNotAvail;
+  function FieldValueToString(const Field: TX3DField): String;
+  var
+    Writer: TX3DWriterNames;
+    StringStream: TStringStream;
   begin
-    WritelnWarning('X3D',
-      'Logger node wants to write on standard output, but it seems that stdout (standard output) ' +
-      'is not available. Under Windows you should explicitly ' +
-      'redirect program''s stdout to make it available, e.g. ' +
-      'run "' + ApplicationName + ' > ' + ApplicationName + '.log".');
+    StringStream := TStringStream.Create('');
+    try
+      Writer := TX3DWriterNames.Create(StringStream, X3DVersion, xeClassic);
+      try
+        Field.FieldSaveToStream(Writer, true);
+        // Remove trailing newline
+        Result := TrimRight(StringStream.DataString);
+      finally FreeAndNil(Writer) end;
+    finally FreeAndNil(StringStream) end;
   end;
 
   procedure WritelnLogMessage;
   var
     S: string;
-    Writer: TX3DWriterNames;
   begin
-    S := Format('Logger "%s": received field "%s" (%s). Time: %f.',
-      [X3DName, Value.X3DName, Value.X3DType, Time.Seconds]);
-
-    if FdLevel.Value = 1 then
+    if FdLevel.Value >= 2 then
     begin
-      WritelnStr(WriteStream, S);
-    end else
-    begin
-      Assert(FdLevel.Value >= 2);
+      S := Format('Logger "%s": received field "%s" (%s). Time: %f.',
+        [X3DName, Value.X3DName, Value.X3DType, Time.Seconds]);
 
       if (FdLevel.Value >= 3) and (Value.ParentNode <> nil) then
       begin
@@ -795,85 +797,32 @@ procedure TLoggerNode.EventWriteReceive(
            (Value.ParentNode as TX3DNode).X3DType]);
       end;
 
-      WriteStr(WriteStream, S + ' Value: ');
+      S := S + ' Value: ' + FieldValueToString(Value);
 
-      Writer := TX3DWriterNames.Create(WriteStream, X3DVersion, xeClassic);
-      try
-        Value.FieldSaveToStream(Writer, true);
-      finally
-        FreeAndNil(Writer);
-      end;
+      if LogFileStream <> nil then
+        WriteLnStr(LogFileStream, S)
+      else
+        WriteLnLog(S);
     end;
   end;
 
 begin
   if FdEnabled.Value and (Fdlevel.Value > 0) then
   begin
-    { First reception of "write" event causes initialization of
-      WriteStream, based on logFile field value. This is Ok, since
-      logFile is not exposed, so it cannot change after the file is loaded. }
-    if not WriteStreamInitialized then
+    if (LogFileStream = nil) and (FdLogFile.Value <> '') then
     begin
-      Assert(WriteStream = nil);
-
-      WriteStreamInitialized := true;
-
-      if FdLogFile.Value <> '' then
-      begin
-        WriteStream := TFileStream.Create(
-          FileNameAutoInc(ApplicationName + '_logger_' +
-            DeleteURIExt(ExtractURIName(FdLogFile.Value)) + '_%d.log'), fmCreate);
-        OwnsWriteStream := true;
-      end else
-      begin
-        WriteStream := StdOutStream;
-        OwnsWriteStream := false;
-        if WriteStream = nil then
-        begin
-          { report stdout not available, leave WriteStream = nil and
-            WriteStreamInitialized = true. This way we will not try to
-            reinit this again. }
-          StdOutNotAvail;
-          Exit;
-        end;
-      end;
+      LogFileStream := TFileStream.Create(
+        FileNameAutoInc(ApplicationName + '_logger_' +
+          DeleteURIExt(ExtractURIName(FdLogFile.Value)) + '_%d.log'), fmCreate);
     end;
 
-    if WriteStream <> nil then
-    begin
-      try
-        WritelnLogMessage;
-      except
-        on E: EWriteError do
-        begin
-          if not OwnsWriteStream then
-          begin
-            { This means that we have stdout, and it just failed...
-              This is possible on Windows.
-
-              Ideally, check for "StdOutStream = nil" should be all that is needed,
-              and wrapping WritelnStr inside try...except should not be needed.
-              But... see StdOutStream comments: you cannot
-              depend on the fact that "StdOutStream <> nil means that stdout
-              is actually available (because user redirected stdout etc.). }
-            StdOutNotAvail;
-          end else
-            raise;
-        end;
-      end;
-    end;
+    WritelnLogMessage;
   end;
 end;
 
 class function TLoggerNode.ClassX3DType: string;
 begin
   Result := 'Logger';
-end;
-
-class function TLoggerNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    URNMatchingCastle(URN, ClassX3DType);
 end;
 
 procedure TConverterNode.CreateNode;
@@ -895,8 +844,8 @@ procedure TConverterNode.EventInReceive(
   Event: TX3DEvent; Value: TX3DField; const Time: TX3DTime);
 begin
   if FdEnabled.Value then
-    { TODO: uhhhmmmm, I cannot convert here (as I don't know to what I should
-      convert... Conversion must be done along the route, when destination
+    { TODO: we cannot convert here (as we don't know to what we should
+      convert...) Conversion must be done along the route, when destination
       is known. }
     EventOut.Send(Value, Time);
 end;
@@ -906,17 +855,11 @@ begin
   Result := 'Converter';
 end;
 
-class function TConverterNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    URNMatchingCastle(URN, ClassX3DType);
-end;
-
 procedure TRenderedTextureNode.CreateNode;
 begin
   inherited;
 
-  FFdViewpoint := TSFNode.Create(Self, true, 'viewpoint', [TAbstractViewpointNode]);
+  FFdViewpoint := TSFNode.Create(Self, true, 'viewpoint', [TAbstractViewpointNode, TViewpointMirrorNode]);
    FdViewpoint.ChangesAlways := [chGeneratedTextureUpdateNeeded];
   AddField(FFdViewpoint);
 
@@ -1021,12 +964,6 @@ begin
   Result := 'RenderedTexture';
 end;
 
-class function TRenderedTextureNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    URNMatchingCastle(URN, ClassX3DType);
-end;
-
 procedure TPlaneNode.CreateNode;
 begin
   inherited;
@@ -1044,12 +981,6 @@ end;
 class function TPlaneNode.ClassX3DType: string;
 begin
   Result := 'Plane';
-end;
-
-class function TPlaneNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    URNMatchingCastle(URN, ClassX3DType);
 end;
 
 function TPlaneNode.Proxy(var State: TX3DGraphTraverseState;
@@ -1129,12 +1060,6 @@ begin
   Result := 'Toggler';
 end;
 
-class function TTogglerNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    URNMatchingCastle(URN, ClassX3DType);
-end;
-
 procedure TTogglerNode.EventStatusReceive(
   Event: TX3DEvent; Value: TX3DField; const Time: TX3DTime);
 begin
@@ -1144,10 +1069,10 @@ begin
     By the way, also avoid sending excessive changed/on/off. }
   if FdnotStatus.Value <> not FdStatus.Value then
   begin
-    FdnotStatus.Send(not FdStatus.Value);
-    EventChanged.Send(true, Time);
-    if FdStatus.Value then EventOn.Send(true, Time);
-    if not FdStatus.Value then EventOff.Send(true, Time);
+    FdnotStatus.Send(not FdStatus.Value, Value.InternalPartialSend);
+    EventChanged.Send(true, Time, Value.InternalPartialSend);
+    if FdStatus.Value then EventOn.Send(true, Time, Value.InternalPartialSend);
+    if not FdStatus.Value then EventOff.Send(true, Time, Value.InternalPartialSend);
   end;
 end;
 
@@ -1160,10 +1085,10 @@ begin
     By the way, also avoid sending excessive changed/on/off. }
   if FdnotStatus.Value <> not FdStatus.Value then
   begin
-    FdStatus.Send(not FdnotStatus.Value);
-    EventChanged.Send(true, Time);
-    if FdStatus.Value then EventOn.Send(true, Time);
-    if not FdStatus.Value then EventOff.Send(true, Time);
+    FdStatus.Send(not FdnotStatus.Value, Value.InternalPartialSend);
+    EventChanged.Send(true, Time, Value.InternalPartialSend);
+    if FdStatus.Value then EventOn.Send(true, Time, Value.InternalPartialSend);
+    if not FdStatus.Value then EventOff.Send(true, Time, Value.InternalPartialSend);
   end;
 end;
 
@@ -1171,21 +1096,21 @@ procedure TTogglerNode.EventToggleReceive(
   Event: TX3DEvent; Value: TX3DField; const Time: TX3DTime);
 begin
   if FdEnabled.Value then
-    FdStatus.Send(not FdStatus.Value);
+    FdStatus.Send(not FdStatus.Value, Value.InternalPartialSend);
 end;
 
 procedure TTogglerNode.EventSetReceive(
   Event: TX3DEvent; Value: TX3DField; const Time: TX3DTime);
 begin
   if FdEnabled.Value then
-    FdStatus.Send(true);
+    FdStatus.Send(true, Value.InternalPartialSend);
 end;
 
 procedure TTogglerNode.EventResetReceive(
   Event: TX3DEvent; Value: TX3DField; const Time: TX3DTime);
 begin
   if FdEnabled.Value then
-    FdStatus.Send(false);
+    FdStatus.Send(false, Value.InternalPartialSend);
 end;
 
 { TCommonSurfaceShaderInfo --------------------------------------------------- }
@@ -1201,14 +1126,24 @@ begin
   Result := FNode.AmbientFactor;
 end;
 
-function TCommonSurfaceShaderNode.TCommonSurfaceShaderInfo.DiffuseColor: TVector3;
+function TCommonSurfaceShaderNode.TCommonSurfaceShaderInfo.GetDiffuseColor: TVector3;
 begin
   Result := FNode.DiffuseFactor;
 end;
 
-function TCommonSurfaceShaderNode.TCommonSurfaceShaderInfo.SpecularColor: TVector3;
+procedure TCommonSurfaceShaderNode.TCommonSurfaceShaderInfo.SetDiffuseColor(const Value: TVector3);
+begin
+  FNode.DiffuseFactor := Value;
+end;
+
+function TCommonSurfaceShaderNode.TCommonSurfaceShaderInfo.GetSpecularColor: TVector3;
 begin
   Result := FNode.SpecularFactor;
+end;
+
+procedure TCommonSurfaceShaderNode.TCommonSurfaceShaderInfo.SetSpecularColor(const Value: TVector3);
+begin
+  FNode.SpecularFactor := Value;
 end;
 
 function TCommonSurfaceShaderNode.TCommonSurfaceShaderInfo.EmissiveColor: TVector3;
@@ -1234,36 +1169,6 @@ end;
 function TCommonSurfaceShaderNode.TCommonSurfaceShaderInfo.Transparency: Single;
 begin
   Result := FNode.Transparency;
-end;
-
-function TCommonSurfaceShaderNode.TCommonSurfaceShaderInfo.ReflSpecular: TVector3;
-begin
-  CalculateReflSpecular(Result);
-end;
-
-function TCommonSurfaceShaderNode.TCommonSurfaceShaderInfo.ReflDiffuse: TVector3;
-begin
-  CalculateReflDiffuse(Result);
-end;
-
-function TCommonSurfaceShaderNode.TCommonSurfaceShaderInfo.TransSpecular: TVector3;
-begin
-  CalculateTransSpecular(Result);
-end;
-
-function TCommonSurfaceShaderNode.TCommonSurfaceShaderInfo.TransDiffuse: TVector3;
-begin
-  CalculateTransDiffuse(Result);
-end;
-
-function TCommonSurfaceShaderNode.TCommonSurfaceShaderInfo.ReflSpecularExp: Single;
-begin
-  Result := 1000000;
-end;
-
-function TCommonSurfaceShaderNode.TCommonSurfaceShaderInfo.TransSpecularExp: Single;
-begin
-  Result := 1000000;
 end;
 
 { TCommonSurfaceShaderNode ----------------------------------------------------- }
@@ -1568,12 +1473,6 @@ begin
   Result := 'CommonSurfaceShader';
 end;
 
-class function TCommonSurfaceShaderNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
 function TCommonSurfaceShaderNode.ShininessFactorExp: Single;
 begin
   Result := Clamped(FdShininessFactor.Value * 128.0, 0.0, 128.0);
@@ -1591,6 +1490,41 @@ begin
   Result := FMaterialInfo;
 end;
 
+{ TImageBackgroundNode ------------------------------------------------------- }
+
+procedure TImageBackgroundNode.CreateNode;
+begin
+  inherited;
+
+  FFdColor := TSFColorRGBA.Create(Self, true, 'color', White);
+  AddField(FFdColor);
+
+  FFdTexture := TSFNode.Create(Self, true, 'texture', [TAbstractTextureNode]);
+  AddField(FFdTexture);
+
+  FFdTexCoords := TMFVec2f.Create(Self, true, 'texCoords', [
+    Vector2(0, 0),
+    Vector2(1, 0),
+    Vector2(1, 1),
+    Vector2(0, 1)
+  ]);
+  AddField(FFdTexCoords);
+end;
+
+class function TImageBackgroundNode.ClassX3DType: string;
+begin
+  Result := 'ImageBackground';
+end;
+
+function TImageBackgroundNode.DirectEnumerateActive(Func: TEnumerateChildrenFunction): Pointer;
+begin
+  Result := inherited;
+  if Result <> nil then Exit;
+
+  Result := FdTexture.Enumerate(Func);
+  if Result <> nil then Exit;
+end;
+
 { registration ----------------------------------------------------------------- }
 
 procedure RegisterInstantRealityNodes;
@@ -1603,7 +1537,8 @@ begin
     TRenderedTextureNode,
     TPlaneNode,
     TTogglerNode,
-    TCommonSurfaceShaderNode
+    TCommonSurfaceShaderNode,
+    TImageBackgroundNode
   ]);
 end;
 {$endif read_implementation}

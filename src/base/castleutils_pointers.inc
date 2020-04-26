@@ -57,7 +57,8 @@ function OffsetUInt(var A, B): PtrUInt;
 function Offset(var A, B): Pointer;
 
 { Compare two methods. }
-function CompareMethods(AMethod1, AMethod2: TMethod): boolean;
+function CompareMethods(const AMethod1, AMethod2: TMethod): boolean; deprecated 'use SameMethods';
+function SameMethods(const AMethod1, AMethod2: TMethod): boolean;
 
 {$endif read_interface}
 
@@ -82,7 +83,18 @@ begin result := GetMem(Size); FillChar(result^,Size, clearvalue) end;
 
 procedure FreeMemNiling(var p: pointer);
 begin
- if p <> nil then begin FreeMem(p); p := nil end;
+  {$ifdef VER3_3} try {$endif}
+  if p <> nil then begin FreeMem(p); p := nil end;
+  {$ifdef VER3_3}
+  except
+    on E: EAccessViolation do
+    begin
+      if IsConsole then
+        Writeln(ErrOutput, 'WARNING: FreeMem failed with EAccessViolation, observed bug of FPC 3.3.1 when reading some (but not all) OggVorbis files. TODO: reproduce in simple testcase (right now: play_sounds on Linux/x86_64) and report. As a workaround, we just continue.');
+      Exit;
+    end;
+  end;
+  {$endif}
 end;
 
 function CheckIsMemCharFilled(const Data; Size: Integer; AChar: Char): Integer;
@@ -189,7 +201,12 @@ begin
   Result := Pointer(PtrUInt( PtrUInt(@A) - PtrUInt(@B) ));
 end;
 
-function CompareMethods(AMethod1, AMethod2: TMethod): boolean;
+function CompareMethods(const AMethod1, AMethod2: TMethod): boolean;
+begin
+  Result := SameMethods(AMethod1, AMethod2);
+end;
+
+function SameMethods(const AMethod1, AMethod2: TMethod): boolean;
 begin
   Result := (AMethod1.Code = AMethod2.Code) and
             (AMethod1.Data = AMethod2.Data);

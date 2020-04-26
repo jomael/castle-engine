@@ -26,21 +26,25 @@ const
 { basic exceptions ---------------------------------------- }
 
 type
-  { Internal error in the program. Something that definitely should not
+  { Internal error (bug) in the program. Something that definitely should not
     happen and indicates a bug that should be reported.
 
     This exception must be shown to user (never silently ignored),
     and usually the safest thing to do is to close the program at this point.
 
     We will add to your error message (passed to the constructor) some
-    instructive message, like @code('Internal error occurred, please
-    submit this to the author : '). }
+    instructive message, like @code('Please submit this to the developers: '). }
   EInternalError = class(Exception)
-    constructor Create(const s: string);
+    constructor Create(const S: string); overload;
+    constructor Create(const ErrorNumber: Int64); overload;
     constructor CreateFmt(const s: string; const Args: array of const);
   end;
 
   ECheckFailed = class(Exception);
+
+type
+  { Simple notify event with no Sender }
+  TSimpleNotifyEvent = procedure of object;
 
 { Check condition.
   @raises ECheckFailed Raised with ErrMessage if condition TrueValue if false. }
@@ -96,7 +100,7 @@ function SFPCVersion: string;
 function SCompilerDescription: string;
 
 { Print some common info for programs released on
-  [http://castle-engine.sourceforge.net/].
+  [https://castle-engine.io/].
   This is useful only for programs released on this WWW page by Michalis.
   Resulting string is multiline.
 
@@ -141,13 +145,37 @@ type
   end;
   {$warnings on}
 
+{ Like standard Format, but always uses dot (.) as a decimal separator
+  for the floating point numbers, regardless of the user's locale settings. }
+function FormatDot(const Fmt: String; const Args: array of const): String;
+
+{ Like standard TryStrToFloat, but always uses dot (.) as a decimal separator
+  for the floating point numbers, regardless of the user's locale settings. }
+function TryStrToFloatDot(const S: String; out Value: Single): Boolean; overload;
+function TryStrToFloatDot(const S: String; out Value: Double): Boolean; overload;
+{$ifndef EXTENDED_EQUALS_DOUBLE}
+function TryStrToFloatDot(const S: String; out Value: Extended): Boolean; overload;
+{$endif}
+
+{ Like standard StrToFloat, but always uses dot (.) as a decimal separator
+  for the floating point numbers, regardless of the user's locale settings. }
+function StrToFloatDot(const S: String): Extended;
+
+{ Like standard StrToFloatDef, but always uses dot (.) as a decimal separator
+  for the floating point numbers, regardless of the user's locale settings. }
+function StrToFloatDefDot(Const S: String; const Default: Extended): Extended;
+
+var
+  { Are we inside Castle Game Engine designer mode. }
+  CastleDesignMode: Boolean;
+
 {$endif read_interface}
 
 {$ifdef read_implementation}
 
-constructor EInternalError.Create(const s: string);
+constructor EInternalError.Create(const S: string);
 begin
-  inherited Create('Internal error (submit a bugreport!): ' + S);
+  inherited Create('Internal error occured. Please submit a bugreport providing this information to the developers: ' + S);
 //   inherited Create('Internal error: something that should not ever happen... happened. ' +
 //     'This indicates a bug in the program''s code (or something related, ' +
 //     'like a shared library, that should be workarounded from the program then). ' +
@@ -155,6 +183,11 @@ begin
 //     'bug in some way, so it may be something simple and I can probably fix it '+
 //     '(or it''s external bug and I am not responsible for this...). '+}
 //     'We definitely want you to report this as a bug! Please send this error-specific info: ' + S);
+end;
+
+constructor EInternalError.Create(const ErrorNumber: Int64);
+begin
+  Create(IntToStr(ErrorNumber));
 end;
 
 constructor EInternalError.CreateFmt(const s: string; const Args: array of const);
@@ -206,8 +239,7 @@ function Iff(boolval: boolean; trueval, falseval: char)    : char;     begin if 
 {$ifdef FPC}
 function SFPCVersion: string;
 begin
-  Result := {$I %FPCVERSION%} +
-    ' (' + {$I %FPCTARGETOS%} + ' / ' + {$I %FPCTARGETCPU%} + ')';
+  Result := {$I %FPCVERSION%} + ' (' + {$I %FPCTARGETOS%} + ' / ' + {$I %FPCTARGETCPU%} + ')';
 end;
 {$endif FPC}
 
@@ -229,6 +261,8 @@ begin
     'Unrecognized compiler'
 
     {$endif} {$endif} {$endif};
+
+  Result += ', platform: ' + PlatformToStr(Platform);
 end;
 
 function SCastleEngineProgramHelpSuffix(const DisplayApplicationName: string;
@@ -264,6 +298,69 @@ end;
 constructor TNoParameterlessContructor.Create;
 begin
   raise Exception.Create('Parameterless constructor of ' + ClassName + ' should never be called');
+end;
+
+{$ifndef FPC}
+function DefaultFormatSettings: TFormatSettings;
+begin
+  Result := TFormatSettings.Create;
+end;
+{$endif}
+
+function FormatDot(const Fmt: String; const Args: array of const): String;
+var
+  FormatSettings: TFormatSettings;
+begin
+  FormatSettings := DefaultFormatSettings;
+  FormatSettings.DecimalSeparator := '.';
+  Result := Format(Fmt, Args, FormatSettings);
+end;
+
+function TryStrToFloatDot(const S: String; out Value: Single): Boolean;
+var
+  FormatSettings: TFormatSettings;
+begin
+  FormatSettings := DefaultFormatSettings;
+  FormatSettings.DecimalSeparator := '.';
+  Result := TryStrToFloat(S, Value, FormatSettings);
+end;
+
+function TryStrToFloatDot(const S: String; out Value: Double): Boolean;
+var
+  FormatSettings: TFormatSettings;
+begin
+  FormatSettings := DefaultFormatSettings;
+  FormatSettings.DecimalSeparator := '.';
+  Result := TryStrToFloat(S, Value, FormatSettings);
+end;
+
+{$ifndef EXTENDED_EQUALS_DOUBLE}
+function TryStrToFloatDot(const S: String; out Value: Extended): Boolean;
+var
+  FormatSettings: TFormatSettings;
+begin
+  FormatSettings := DefaultFormatSettings;
+  FormatSettings.DecimalSeparator := '.';
+  Result := TryStrToFloat(S, Value, FormatSettings);
+end;
+{$endif}
+
+function StrToFloatDot(const S: String): Extended;
+var
+  FormatSettings: TFormatSettings;
+begin
+  FormatSettings := DefaultFormatSettings;
+  FormatSettings.DecimalSeparator := '.';
+  Result := StrToFloat(S, FormatSettings);
+end;
+
+function StrToFloatDefDot(const S: String; const Default: Extended): Extended;
+var
+  FormatSettings: TFormatSettings;
+begin
+  FormatSettings := DefaultFormatSettings;
+  FormatSettings.DecimalSeparator := '.';
+  Result := StrToFloatDef(S, Default, FormatSettings);
 end;
 
 {$endif read_implementation}

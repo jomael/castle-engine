@@ -20,13 +20,22 @@
     So, you can create a hierarchy of nodes with any depth. }
   TAbstractGroupingNode = class(TAbstractChildNode)
   strict private
-    BeforeTraversePushedState: boolean;
+    type
+      TGeneralGroupingEnumerator = class
+        State: TX3DGraphTraverseState;
+        WasPointingDeviceSensor: boolean;
+        function EnumerateChildrenFunction(Node, Child: TX3DNode): Pointer;
+      end;
+    var
+      BeforeTraversePushedState: boolean;
+      TempEnumerator: TGeneralGroupingEnumerator;
+      TempEnumeratorUsed: Boolean;
   protected
     { If @true (default implementation in this class), then this really
       behaves like a grouping node. If @false, this allows everything
       to "leak out" (transform changes, VRML 1.0 state changes etc.).
       Possibility useful for VRML 1.0 extension
-      http://castle-engine.sourceforge.net/x3d_extensions.php#section_ext_wwwinline_separate }
+      https://castle-engine.io/x3d_extensions.php#section_ext_wwwinline_separate }
     function SeparateGroup: boolean; virtual;
 
     procedure BeforeTraverse(StateStack: TX3DGraphTraverseStateStack); override;
@@ -41,6 +50,9 @@
       implementation... So ApplyTransform must happen in the middle of
       TAbstractGroupingNode.BeforeTraverse call. }
     procedure ApplyTransform(State: TX3DGraphTraverseState); virtual;
+  public
+    procedure CreateNode; override;
+    destructor Destroy; override;
   end;
 
   { Basis for all node types that have bounds specified as part of the definition. }
@@ -80,25 +92,39 @@
     strict private FFdBboxSize: TSFVec3f;
     public property FdBboxSize: TSFVec3f read FFdBboxSize;
 
+    {$ifndef CASTLE_SLIM_NODES}
     strict private FFdRender: TSFBool;
     { This is an extension from InstantReality, see
       [http://instant-reality.com/documentation/nodetype/ChildGroup/].
       We simply ignore it for now. }
     public property FdRender: TSFBool read FFdRender;
+    {$endif}
 
     { Add the nodes as children.
-      Adding a node that already exists on the children list is ignored.
 
-      Note: This method prevents adding duplicates to the children list.
-      And the X3D specification doesn't allow duplicates on the children list.
-      But our engine allows duplicates on the children list ---
+      By default, adding the same node multiple times makes
+      the node present on the list multiple times.
+      This AddChildren behavior is consistent with how
+      @code(FdChildren.Add(Child)) behaves,
+      and consistent with how @link(RemoveChildren) works
+      (it removes only a single copy in case of duplicates).
+      Our engine allows duplicates on the children list ---
       you can specify them in the X3D file,
       or you can add them using @link(FdChildren).Add.
 
+      If you specify AllowDuplicates = @false,
+      then adding a node that already exists on the children list is ignored.
+      This has a tiny performance hit (we need to check for existence first),
+      but it is consistent with how X3D event "addChildren" should behave
+      according to the spec.
+      The X3D specification doesn't allow duplicates on the children list.
+
       This propagates the changes appropriately to the parent TCastleSceneCore,
       calling TCastleSceneCore.ChangedAll or something similar. }
-    procedure AddChildren(const Children: array of TAbstractChildNode); overload;
-    procedure AddChildren(const Child: TAbstractChildNode); overload;
+    procedure AddChildren(const Children: array of TAbstractChildNode;
+      const AllowDuplicates: Boolean = true); overload;
+    procedure AddChildren(const Child: TAbstractChildNode;
+      const AllowDuplicates: Boolean = true); overload;
 
     { Remove the nodes from the children list.
       Removing a node that does not exist on the children list is ignored.
@@ -132,7 +158,6 @@
     class function ForVRMLVersion(const Version: TX3DVersion): boolean;
       override;
 
-    class function URNMatching(const URN: string): boolean; override;
 
     {$I auto_generated_node_helpers/x3dnodes_group.inc}
   end;
@@ -290,7 +315,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
 
     strict private FFdChildren: TMFNode;
     public property FdChildren: TMFNode read FFdChildren;
@@ -328,7 +352,6 @@
     class function ForVRMLVersion(const Version: TX3DVersion): boolean;
       override;
 
-    class function URNMatching(const URN: string): boolean; override;
 
     function TransformationChange: TNodeTransformationChange; override;
 
@@ -358,7 +381,6 @@
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
-    class function URNMatching(const URN: string): boolean; override;
     class function ForVRMLVersion(const Version: TX3DVersion): boolean;
       override;
     function TransformationChange: TNodeTransformationChange; override;
@@ -385,68 +407,48 @@
 {$endif read_interface}
 
 {$ifdef read_implementation}
-type
-  TGeneralGroupingEnumerator = class
-    State: TX3DGraphTraverseState;
-    WasPointingDeviceSensor: boolean;
-    { Add pointing device sensor (including Anchor) node. }
-    procedure AddPointingDeviceSensor(Child:TX3DNode);
-    function EnumerateChildrenFunction(Node, Child: TX3DNode): Pointer;
-  end;
 
-  procedure TGeneralGroupingEnumerator.AddPointingDeviceSensor(Child:TX3DNode);
+{ TGeneralGroupingEnumerator ------------------------------------------------- }
+
+function TAbstractGroupingNode.TGeneralGroupingEnumerator.EnumerateChildrenFunction(
+  Node, Child: TX3DNode): Pointer;
+begin
+  Result := nil;
+  Child.GroupBeforeTraverse(State, WasPointingDeviceSensor);
+end;
+
+procedure GroupBeforeTraverse_AddPointingDeviceSensor(const Child: TX3DNode;
+  const State: TX3DGraphTraverseState; var WasPointingDeviceSensor: Boolean);
+begin
+  { When we encounter the *first* pointing device sensor within a grouping node,
+    it obscures the other pointing devices (from parent nodes).
+    Other pointing device sensors within the same grouping node are added. }
+
+  if not WasPointingDeviceSensor then
   begin
-    { Testing for WasPointingDeviceSensor guarantees that multiple
-      pointing devices within the same grouping node will all work. }
-    if not WasPointingDeviceSensor then
-    begin
-      State.PointingDeviceSensors.Clear;
-      State.PointingDeviceSensors.Transform := State.Transform;
-      State.PointingDeviceSensors.InvertedTransform := State.InvertedTransform;
-      WasPointingDeviceSensor := true;
-    end;
-
-    State.PointingDeviceSensors.Add(Child);
+    State.PointingDeviceSensors.Clear;
+    State.PointingDeviceSensors.Transform := State.Transform;
+    State.PointingDeviceSensors.InvertedTransform := State.InvertedTransform;
+    WasPointingDeviceSensor := true;
   end;
 
-  function TGeneralGroupingEnumerator.EnumerateChildrenFunction(
-    Node, Child: TX3DNode): Pointer;
-  var
-    CP: PClipPlane;
-  begin
-    Result := nil;
-    if (Child is TAbstractLightNode) and
-       (TAbstractLightNode(Child).Scope = lsLocal) then
-      { We do CreateLightInstance with State from TAbstractGroupingNode node,
-        while precisely we should rather use State from TAbstractLightNode
-        traverse. But, fortunately, State of TAbstractLightNode doesn't
-        change inside (TAbstractLightNode doesn't do anything inside
-        BeforeTraverse), so this is the same thing. }
-      { TODO: we ignore here light radius, which may be relevant
-        for TAbstractPositionalLightNode with HasRadius = true.
-        E.g. PointLight with global = false should be limited by *both*
-        scope (in graph hierarchy) and radius, as far as I understand. }
-      State.AddLight(
-        TAbstractLightNode(Child).CreateLightInstance(State)) else
-    if Child is TAbstractPointingDeviceSensorNode then
-    begin
-      AddPointingDeviceSensor(Child);
-    end else
-    if Child is TClipPlaneNode then
-    begin
-      CP := State.AddClipPlane;
-      CP^.Node := TClipPlaneNode(Child);
-      CP^.Transform := State.Transform;
-    end else
-    if Child is TLocalFogNode then
-      State.LocalFog := TLocalFogNode(Child) else
-    if Child is TEffectNode then
-    begin
-      if State.Effects = nil then
-        State.Effects := TX3DNodeList.Create(false);
-      State.Effects.Add(Child);
-    end;
-  end;
+  State.PointingDeviceSensors.Add(Child);
+end;
+
+{ TAbstractGroupingNode ------------------------------------------------------ }
+
+procedure TAbstractGroupingNode.CreateNode;
+begin
+  inherited;
+  TempEnumerator := TGeneralGroupingEnumerator.Create;
+  TempEnumeratorUsed := false;
+end;
+
+destructor TAbstractGroupingNode.Destroy;
+begin
+  FreeAndNil(TempEnumerator);
+  inherited;
+end;
 
 function TAbstractGroupingNode.SeparateGroup: boolean;
 begin
@@ -466,50 +468,6 @@ begin
 
   ApplyTransform(StateStack.Top);
 
-  (*We append lights with lsLocal scope (global=FALSE and VRML/X3D >= 2.0)
-    to the current State.
-
-    It may seem wasteful to enumerate children twice
-    (first we enumerate here, then actual Traverse enumerates,
-    this time recursively, for the second time). But it turned out to
-    be the fastest and simplest method of propagating lsLocal lights
-    correctly...
-
-    Other (rejected) approach was to add ParentGroup to TLightInstance
-    and do it as post-processing step, i.e. in TCastleSceneCore in
-    AddGlobalLights take this ParentGroup and add light everywhere.
-    But that was 1. even slower, since it must traverse ParentGroup once again
-    for each directional light, and for each shape within this ParentGroup,
-    it must find all it's occurrences inside Shapes, and add light there
-    2. it fails ugly in case of DEF / USE of shapes.
-
-    See demo_models/lights_materials/directional_light_scope.wrl test. Imagine
-    (simplified VRML below) :
-
-      Group {
-        DEF S Shape { .... some sphere .... }
-        Group {
-          USE S
-          DirectionalLight { }
-          USE S
-        }
-        USE S
-      }
-
-    What would happen here? ParentGroup.Enumerate would find S *two* times.
-    For each of these occurrences, it would find *four* shapes with
-    matching node value. So 1. all four spheres would be lighted (incorrect,
-    only two spheres in the middle should be lighted) 2. all of them would
-    be lighted two times by the same light... Fix for 1st problem would
-    require us to record some list of parents within State (which would
-    awfully slow down Traverse work, that already is too crowded). Fix for 2nd
-    problem would require some intelligent avoiding of duplicates
-    (set light only for first node, that is both matching and has the light
-    not set yet).
-
-    So fixing the above solution would be quite more convoluted and slower
-    than simple, correct solution below. *)
-
   { We also use it to collect State.PointingDeviceSensors,
     as it turns our that the same approach is possible, for the same reasons.
     And the same goes for State.ClipPlanes.
@@ -517,8 +475,16 @@ begin
     so this doesn't slow down the code.
   }
 
-  Enumerator := TGeneralGroupingEnumerator.Create;
+  if not TempEnumeratorUsed then
+  begin
+    // for speed, usually we can reuse the same TempEnumerator instance
+    Enumerator := TempEnumerator;
+    TempEnumeratorUsed := true;
+  end else
+    Enumerator := TGeneralGroupingEnumerator.Create;
+
   try
+    // initialize complete Enumerator state, as it may be a reused TempEnumerator instance
     Enumerator.State := StateStack.Top;
     Enumerator.WasPointingDeviceSensor := false;
 
@@ -534,10 +500,15 @@ begin
       So it's correct to just call AddPointingDeviceSensor that wil set
       WasPointingDeviceSensor := true. }
     if Self is TAnchorNode then
-      Enumerator.AddPointingDeviceSensor(Self);
+      GroupBeforeTraverse_AddPointingDeviceSensor(Self, Enumerator.State, Enumerator.WasPointingDeviceSensor);
 
     DirectEnumerateActive({$ifdef CASTLE_OBJFPC}@{$endif} Enumerator.EnumerateChildrenFunction);
-  finally FreeAndNil(Enumerator) end;
+  finally
+    if Enumerator = TempEnumerator then
+      TempEnumeratorUsed := false
+    else
+      FreeAndNil(Enumerator);
+  end;
 end;
 
 procedure TAbstractGroupingNode.ApplyTransform(State: TX3DGraphTraverseState);
@@ -553,6 +524,8 @@ begin
   inherited;
 end;
 
+{ TAbstractX3DGroupingNode --------------------------------------------------- }
+
 procedure TAbstractX3DGroupingNode.CreateNode;
 begin
   inherited;
@@ -566,7 +539,7 @@ begin
   EventRemoveChildren.AddNotification({$ifdef CASTLE_OBJFPC}@{$endif} EventRemoveChildrenReceive);
 
   FFdChildren := TMFNode.Create(Self, true, 'children', IAbstractChildNode);
-   FdChildren.ChangesAlways := [chEverything];
+   FdChildren.ChangesAlways := [chChildren];
   AddField(FFdChildren);
 
   FFdBboxCenter := TSFVec3f.Create(Self, false, 'bboxCenter', TVector3.Zero);
@@ -577,8 +550,10 @@ begin
   AddField(FFdBboxSize);
   { X3D specification comment: [0,Inf) or -1 -1 -1 }
 
+  {$ifndef CASTLE_SLIM_NODES}
   FFdRender := TSFBool.Create(Self, true, 'render', true);
   AddField(FFdRender);
+  {$endif}
 
   DefaultContainerField := 'children';
 end;
@@ -588,23 +563,23 @@ function TAbstractX3DGroupingNode.ToChildrenArray(
 var
   I: Integer;
 begin
-  SetLength(Result, Nodes.Items.Count);
-  for I := 0 to Nodes.Items.Count - 1 do
+  SetLength(Result, Nodes.Count);
+  for I := 0 to Nodes.Count - 1 do
   begin
-    if not (Nodes.Items[I] is TAbstractChildNode) then
+    if not (Nodes[I] is TAbstractChildNode) then
     begin
       WritelnWarning('X3D', 'Node on addChildren or removeChildren list is not a TAbstractChildNode, ignoring event');
       SetLength(Result, 0);
       Exit;
     end;
-    Result[I] := TAbstractChildNode(Nodes.Items[I]);
+    Result[I] := TAbstractChildNode(Nodes[I]);
   end;
 end;
 
 procedure TAbstractX3DGroupingNode.EventAddChildrenReceive(
   Event: TX3DEvent; Value: TX3DField; const Time: TX3DTime);
 begin
-  AddChildren(ToChildrenArray(Value as TMFNode));
+  AddChildren(ToChildrenArray(Value as TMFNode), false);
 end;
 
 procedure TAbstractX3DGroupingNode.EventRemoveChildrenReceive(
@@ -614,7 +589,8 @@ begin
 end;
 
 procedure TAbstractX3DGroupingNode.AddChildren(
-  const Children: array of TAbstractChildNode);
+  const Children: array of TAbstractChildNode;
+  const AllowDuplicates: Boolean);
 var
   N: TAbstractChildNode;
 begin
@@ -628,10 +604,10 @@ begin
 
     But it is not necessary in practice,
     and it would be a little wasteful (creating a temporary TMFNode to send
-    for each AddChildren call). Do we don't do it now. }
+    for each AddChildren call). So we don't do it now. }
 
   for N in Children do
-    if FdChildren.Items.IndexOf(N) = -1 then
+    if AllowDuplicates or (FdChildren.IndexOf(N) = -1) then
       FdChildren.Add(N);
 
   if Scene <> nil then
@@ -649,11 +625,12 @@ begin
   { Note that X3D specification directly says
     "A children field is not allowed to directly contain
     multiple instances of the same node."
-    Thus the question how we should deal with multiple items to remove
-    (use Remove or RemoveAll in implementation below?) doesn't exist.
-
     Note that I didn't find such notice in VRML 97 specification.
-    This seems to be undefined case in VRML 97? }
+    This seems to be undefined case in VRML 97?
+
+    But our engine allows it, it makes AddChildren / RemoveChildren
+    faster by default, and it's consistent with normal list operations in Pascal.
+  }
 
   if Scene <> nil then
     Scene.BeforeNodesFree;
@@ -666,9 +643,10 @@ begin
 end;
 
 procedure TAbstractX3DGroupingNode.AddChildren(
-  const Child: TAbstractChildNode);
+  const Child: TAbstractChildNode;
+  const AllowDuplicates: Boolean);
 begin
-  AddChildren([Child]);
+  AddChildren([Child], AllowDuplicates);
 end;
 
 procedure TAbstractX3DGroupingNode.RemoveChildren(
@@ -699,13 +677,6 @@ end;
 class function TGroupNode.ClassX3DType: string;
 begin
   Result := 'Group';
-end;
-
-class function TGroupNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 class function TGroupNode.ForVRMLVersion(const Version: TX3DVersion): boolean;
@@ -909,7 +880,7 @@ begin
   inherited;
 
   FFdChildren := TMFNode.Create(Self, false, 'children', IAbstractChildNode);
-   FdChildren.ChangesAlways := [chEverything];
+   FdChildren.ChangesAlways := [chChildren];
   AddField(FFdChildren);
 
   FFdBboxCenter := TSFVec3f.Create(Self, false, 'bboxCenter', Vector3(0, 0, 0));
@@ -926,12 +897,6 @@ end;
 class function TStaticGroupNode.ClassX3DType: string;
 begin
   Result := 'StaticGroup';
-end;
-
-class function TStaticGroupNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 function TStaticGroupNode.DirectEnumerateActive(Func: TEnumerateChildrenFunction): Pointer;
@@ -957,13 +922,6 @@ end;
 class function TSwitchNode.ClassX3DType: string;
 begin
   Result := 'Switch';
-end;
-
-class function TSwitchNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
 end;
 
 class function TSwitchNode.ForVRMLVersion(const Version: TX3DVersion): boolean;
@@ -1023,13 +981,6 @@ begin
   Result := 'Transform';
 end;
 
-class function TTransformNode.URNMatching(const URN: string): boolean;
-begin
-  Result := (inherited URNMatching(URN)) or
-    (URN = URNVRML97Nodes + ClassX3DType) or
-    (URN = URNX3DNodes + ClassX3DType);
-end;
-
 class function TTransformNode.ForVRMLVersion(const Version: TX3DVersion): boolean;
 begin
   Result := Version.Major >= 2;
@@ -1052,11 +1003,10 @@ procedure TransformState(State: TX3DGraphTraverseState;
   const Scale: TVector3;
   const ScaleOrientation: TVector4;
   const Translation: TVector3);
-{ Workaround FPC 3.0.4 bug (internal error) on Darwin for AArch64
-  (not on other platforms):
-  x3dnodes_standard_grouping.inc(1035,3) Fatal: Internal error 2014121702
-}
-{$if defined(VER3_0) and defined(DARWIN) and defined(CPUAARCH64)}
+{ Workaround FPC bug on Darwin for AArch64 (not on other platforms),
+  causes "Fatal: Internal error 2014121702".
+  Occurs with 3.0.4 and with 3.3.1 (r44333 from 2020/03/22). }
+{$if defined(DARWIN) and defined(CPUAARCH64)}
 
   type
     TTransformData = record
@@ -1084,7 +1034,7 @@ var
   TransformData: TTransformData;
 begin
   TransformData.Transform := State.Transform;
-  TransformData.InverseTransform := State.InvertedTransform;;
+  TransformData.InverseTransform := State.InvertedTransform;
   TransformData.Center := Center;
   TransformData.Rotation := Rotation;
   TransformData.Scale := Scale;

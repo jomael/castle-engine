@@ -592,6 +592,12 @@ type
     procedure SetRows(const ARow: TIndex; const Value: TGenericVector4); inline;
     function GetColumns(const AColumn: TIndex): TGenericVector4; inline;
     procedure SetColumns(const AColumn: TIndex; const Value: TGenericVector4); inline;
+    procedure RaisePositionTransformResultInvalid;
+    { Raise ETransformedResultInvalid.
+      Since TGenericMatrix4.MultDirection is time-critical (it is used in TFrustum.Transform
+      which can be a bottleneck, testcase: The Unholy Society),
+      keep it fast. }
+    procedure RaiseDirectionTransformedResultInvalid(const Divisor: TGenericScalar);
   public
     var
       Data: array [TIndex, TIndex] of TGenericScalar;
@@ -612,6 +618,10 @@ type
       Note that this is different from vectors, where vector * vector
       makes a component-wise multiplication. }
     class operator {$ifdef FPC}*{$else}Multiply{$endif} (const M1, M2: TGenericMatrix4): TGenericMatrix4; inline;
+
+    { Calculates "M.Transpose * V" in a faster way
+      (without spending *any* time on calculating transposition). }
+    function TransposeMultiply(const V: TGenericVector4): TGenericVector4; inline;
 
     function ToString(const LineIndent: string = ''): string;
 
@@ -750,12 +760,12 @@ end;
 
 function TGenericVector2.ToString: string;
 begin
-  Result := Format('%f %f', [Data[0], Data[1]]);
+  Result := FormatDot('%f %f', [Data[0], Data[1]]);
 end;
 
 function TGenericVector2.ToRawString: string;
 begin
-  Result := Format('%g %g', [Data[0], Data[1]]);
+  Result := FormatDot('%g %g', [Data[0], Data[1]]);
 end;
 
 function TGenericVector2.GetItems(const Index: TIndex): TGenericScalar;
@@ -961,12 +971,12 @@ end;
 
 function TGenericVector3.ToString: string;
 begin
-  Result := Format('%f %f %f', [Data[0], Data[1], Data[2]]);
+  Result := FormatDot('%f %f %f', [Data[0], Data[1], Data[2]]);
 end;
 
 function TGenericVector3.ToRawString: string;
 begin
-  Result := Format('%g %g %g', [Data[0], Data[1], Data[2]]);
+  Result := FormatDot('%g %g %g', [Data[0], Data[1], Data[2]]);
 end;
 
 function TGenericVector3.GetItems(const Index: TIndex): TGenericScalar;
@@ -1221,12 +1231,12 @@ end;
 
 function TGenericVector4.ToString: string;
 begin
-  Result := Format('%f %f %f %f', [Data[0], Data[1], Data[2], Data[3]]);
+  Result := FormatDot('%f %f %f %f', [Data[0], Data[1], Data[2], Data[3]]);
 end;
 
 function TGenericVector4.ToRawString: string;
 begin
-  Result := Format('%g %g %g %g', [Data[0], Data[1], Data[2], Data[3]]);
+  Result := FormatDot('%g %g %g %g', [Data[0], Data[1], Data[2], Data[3]]);
 end;
 
 function TGenericVector4.GetItems(const Index: TIndex): TGenericScalar;
@@ -1443,16 +1453,16 @@ end;
 
 function TGenericMatrix2.ToString(const LineIndent: string): string;
 begin
-  Result := Format('%s%f %f' + NL +
-                   '%s%f %f',
+  Result := FormatDot('%s%f %f' + NL +
+                      '%s%f %f',
    [LineIndent, Data[0, 0], Data[1, 0],
     LineIndent, Data[0, 1], Data[1, 1] ]);
 end;
 
 function TGenericMatrix2.ToRawString(const LineIndent: string): string;
 begin
-  Result := Format('%s%g %g' + NL +
-                   '%s%g %g',
+  Result := FormatDot('%s%g %g' + NL +
+                      '%s%g %g',
    [LineIndent, Data[0, 0], Data[1, 0],
     LineIndent, Data[0, 1], Data[1, 1] ]);
 end;
@@ -1705,9 +1715,9 @@ end;
 
 function TGenericMatrix3.ToString(const LineIndent: string): string;
 begin
-  Result := Format('%s%f %f %f' + NL +
-                   '%s%f %f %f' + NL +
-                   '%s%f %f %f',
+  Result := FormatDot('%s%f %f %f' + NL +
+                      '%s%f %f %f' + NL +
+                      '%s%f %f %f',
    [LineIndent, Data[0, 0], Data[1, 0], Data[2, 0],
     LineIndent, Data[0, 1], Data[1, 1], Data[2, 1],
     LineIndent, Data[0, 2], Data[1, 2], Data[2, 2] ]);
@@ -1715,9 +1725,9 @@ end;
 
 function TGenericMatrix3.ToRawString(const LineIndent: string): string;
 begin
-  Result := Format('%s%g %g %g' + NL +
-                   '%s%g %g %g' + NL +
-                   '%s%g %g %g',
+  Result := FormatDot('%s%g %g %g' + NL +
+                      '%s%g %g %g' + NL +
+                      '%s%g %g %g',
    [LineIndent, Data[0, 0], Data[1, 0], Data[2, 0],
     LineIndent, Data[0, 1], Data[1, 1], Data[2, 1],
     LineIndent, Data[0, 2], Data[1, 2], Data[2, 2] ]);
@@ -2011,6 +2021,14 @@ begin
   Result.Data[3, 3] := V.Data[3, 3] * Scalar;
 end;
 
+function TGenericMatrix4.TransposeMultiply(const V: TGenericVector4): TGenericVector4;
+begin
+  Result.Data[0] := Data[0, 0] * V.Data[0] + Data[0, 1] * V.Data[1] + Data[0, 2] * V.Data[2] + Data[0, 3] * V.Data[3];
+  Result.Data[1] := Data[1, 0] * V.Data[0] + Data[1, 1] * V.Data[1] + Data[1, 2] * V.Data[2] + Data[1, 3] * V.Data[3];
+  Result.Data[2] := Data[2, 0] * V.Data[0] + Data[2, 1] * V.Data[1] + Data[2, 2] * V.Data[2] + Data[2, 3] * V.Data[3];
+  Result.Data[3] := Data[3, 0] * V.Data[0] + Data[3, 1] * V.Data[1] + Data[3, 2] * V.Data[2] + Data[3, 3] * V.Data[3];
+end;
+
 class operator TGenericMatrix4.{$ifdef FPC}*{$else}Multiply{$endif} (const M: TGenericMatrix4; const V: TGenericVector4): TGenericVector4;
 {var
   I, J: Integer;}
@@ -2070,10 +2088,10 @@ end;
 
 function TGenericMatrix4.ToString(const LineIndent: string): string;
 begin
-  Result := Format('%s%f %f %f %f' + NL +
-                   '%s%f %f %f %f' + NL +
-                   '%s%f %f %f %f' + NL +
-                   '%s%f %f %f %f',
+  Result := FormatDot('%s%f %f %f %f' + NL +
+                      '%s%f %f %f %f' + NL +
+                      '%s%f %f %f %f' + NL +
+                      '%s%f %f %f %f',
    [LineIndent, Data[0, 0], Data[1, 0], Data[2, 0], Data[3, 0],
     LineIndent, Data[0, 1], Data[1, 1], Data[2, 1], Data[3, 1],
     LineIndent, Data[0, 2], Data[1, 2], Data[2, 2], Data[3, 2],
@@ -2082,10 +2100,10 @@ end;
 
 function TGenericMatrix4.ToRawString(const LineIndent: string): string;
 begin
-  Result := Format('%s%g %g %g %g' + NL +
-                   '%s%g %g %g %g' + NL +
-                   '%s%g %g %g %g' + NL +
-                   '%s%g %g %g %g',
+  Result := FormatDot('%s%g %g %g %g' + NL +
+                      '%s%g %g %g %g' + NL +
+                      '%s%g %g %g %g' + NL +
+                      '%s%g %g %g %g',
    [LineIndent, Data[0, 0], Data[1, 0], Data[2, 0], Data[3, 0],
     LineIndent, Data[0, 1], Data[1, 1], Data[2, 1], Data[3, 1],
     LineIndent, Data[0, 2], Data[1, 2], Data[2, 2], Data[3, 2],
@@ -2248,6 +2266,11 @@ begin
   Result.Data[3, 3] := Data[3, 3];
 end;
 
+procedure TGenericMatrix4.RaisePositionTransformResultInvalid;
+begin
+  raise ETransformedResultInvalid.Create('3D point transformed by 4x4 matrix to a direction');
+end;
+
 function TGenericMatrix4.MultPoint(const Pt: TGenericVector3): TGenericVector3;
 var
   Divisor: TGenericScalar;
@@ -2289,7 +2312,7 @@ begin
       Data[2, 3] * Pt.Data[2] +
       Data[3, 3];
     if Math.IsZero(Divisor) then
-      raise ETransformedResultInvalid.Create('3D point transformed by 4x4 matrix to a direction');
+      RaisePositionTransformResultInvalid;
 
     Divisor := 1 / Divisor;
     Result.Data[0] := Result.Data[0] * Divisor;
@@ -2313,6 +2336,13 @@ begin
   Result.Data[1] := Res3D.Data[1];
 end;
 
+procedure TGenericMatrix4.RaiseDirectionTransformedResultInvalid(const Divisor: TGenericScalar);
+begin
+  raise ETransformedResultInvalid.Create(Format(
+    '3D direction transformed by 4x4 matrix to a point, with divisor = %f (%g), with matrix:',
+    [Divisor, Divisor]) + NL + ToString);
+end;
+
 function TGenericMatrix4.MultDirection(const Dir: TGenericVector3): TGenericVector3;
 var
   Divisor: TGenericScalar;
@@ -2333,9 +2363,7 @@ begin
   begin
     Divisor := Data[0, 3] * Dir.Data[0] + Data[1, 3] * Dir.Data[1] + Data[2, 3] * Dir.Data[2];
     if not Math.IsZero(Divisor) then
-      raise ETransformedResultInvalid.Create(Format(
-        '3D direction transformed by 4x4 matrix to a point, with divisor = %f (%g), with matrix:',
-        [Divisor, Divisor]) + NL + ToString);
+      RaiseDirectionTransformedResultInvalid(Divisor);
   end;
 end;
 

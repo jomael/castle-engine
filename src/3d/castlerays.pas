@@ -71,7 +71,7 @@ type
       (this is in practice not costly to us, and it often helps --- when ray
       direction is normalized, various distances from ray collisions are "real"). }
     procedure PrimaryRay(const x, y: Single;
-      const ScreenWidth, ScreenHeight: Integer;
+      const ScreenWidth, ScreenHeight: Single;
       out RayOrigin, RayDirection: TVector3); virtual; abstract;
   end;
 
@@ -84,7 +84,7 @@ type
       const APerspectiveAngles: TVector2);
 
     procedure PrimaryRay(const x, y: Single;
-      const ScreenWidth, ScreenHeight: Integer;
+      const ScreenWidth, ScreenHeight: Single;
       out RayOrigin, RayDirection: TVector3); override;
   end;
 
@@ -96,7 +96,7 @@ type
       const ADimensions: TFloatRectangle);
 
     procedure PrimaryRay(const x, y: Single;
-      const ScreenWidth, ScreenHeight: Integer;
+      const ScreenWidth, ScreenHeight: Single;
       out RayOrigin, RayDirection: TVector3); override;
   end;
 
@@ -108,7 +108,7 @@ type
       const ADimensions: TFloatRectangle);
 
     procedure PrimaryRay(const x, y: Single;
-      const ScreenWidth, ScreenHeight: Integer;
+      const ScreenWidth, ScreenHeight: Single;
       out RayOrigin, RayDirection: TVector3); override;
   end;
 
@@ -120,7 +120,7 @@ type
   If you want to call this many times for the same camera settings,
   it may be more optimal to create TRaysWindow instance first
   and call it's TRaysWindow.PrimaryRay method. }
-procedure PrimaryRay(const x, y: Single; const ScreenWidth, ScreenHeight: Integer;
+procedure PrimaryRay(const x, y: Single; const ScreenWidth, ScreenHeight: Single;
   const CamPosition, CamDirection, CamUp: TVector3;
   const Projection: TProjection;
   out RayOrigin, RayDirection: TVector3);
@@ -165,7 +165,9 @@ begin
     ptFrustum:
       Result := TFrustumRaysWindow.Create(
         ACamPosition, ACamDirection, ACamUp, Projection.Dimensions);
+    {$ifndef COMPILER_CASE_ANALYSIS}
     else raise EInternalError.Create('TRaysWindow.CreateDescendant:ProjectionType?');
+    {$endif}
   end;
 end;
 
@@ -190,7 +192,7 @@ begin
 end;
 
 procedure TPerspectiveRaysWindow.PrimaryRay(const x, y: Single;
-  const ScreenWidth, ScreenHeight: Integer;
+  const ScreenWidth, ScreenHeight: Single;
   out RayOrigin, RayDirection: TVector3);
 begin
   RayOrigin := CamPosition;
@@ -216,11 +218,10 @@ constructor TFrustumRaysWindow.Create(
   const ADimensions: TFloatRectangle);
 begin
   inherited Create(ACamPosition, ACamDirection, ACamUp);
-  { Workaround FPC 3.0.4 bug (internal error) on Darwin for AArch64
-    (not on other platforms):
+  { Workaround FPC bug on Darwin for AArch64 (not on other platforms):
     castlerays.pas(262,3) Fatal: Internal error 2014121702
-  }
-  {$if defined(VER3_0) and defined(DARWIN) and defined(CPUAARCH64)}
+    Occurs with 3.0.4 and with 3.3.1 (r44333 from 2020/03/22). }
+  {$if defined(DARWIN) and defined(CPUAARCH64)}
   Dimensions := FloatRectangle(
     ADimensions.Left,
     ADimensions.Bottom,
@@ -233,7 +234,7 @@ begin
 end;
 
 procedure TFrustumRaysWindow.PrimaryRay(const X, Y: Single;
-  const ScreenWidth, ScreenHeight: Integer;
+  const ScreenWidth, ScreenHeight: Single;
   out RayOrigin, RayDirection: TVector3);
 begin
   { this is quite similar to TPerspectiveRaysWindow }
@@ -261,11 +262,10 @@ constructor TOrthographicRaysWindow.Create(
   const ADimensions: TFloatRectangle);
 begin
   inherited Create(ACamPosition, ACamDirection, ACamUp);
-  { Workaround FPC 3.0.4 bug (internal error) on Darwin for AArch64
-    (not on other platforms):
+  { Workaround FPC bug on Darwin for AArch64 (not on other platforms):
     castlerays.pas(262,3) Fatal: Internal error 2014121702
-  }
-  {$if defined(VER3_0) and defined(DARWIN) and defined(CPUAARCH64)}
+    Occurs with 3.0.4 and with 3.3.1 (r44333 from 2020/03/22). }
+  {$if defined(DARWIN) and defined(CPUAARCH64)}
   Dimensions := FloatRectangle(
     ADimensions.Left,
     ADimensions.Bottom,
@@ -278,7 +278,7 @@ begin
 end;
 
 procedure TOrthographicRaysWindow.PrimaryRay(const x, y: Single;
-  const ScreenWidth, ScreenHeight: Integer;
+  const ScreenWidth, ScreenHeight: Single;
   out RayOrigin, RayDirection: TVector3);
 begin
   RayOrigin := CamPosition;
@@ -293,7 +293,7 @@ end;
 
 { global functions ----------------------------------------------------------- }
 
-procedure PrimaryRay(const x, y: Single; const ScreenWidth, ScreenHeight: Integer;
+procedure PrimaryRay(const x, y: Single; const ScreenWidth, ScreenHeight: Single;
   const CamPosition, CamDirection, CamUp: TVector3;
   const Projection: TProjection;
   out RayOrigin, RayDirection: TVector3);

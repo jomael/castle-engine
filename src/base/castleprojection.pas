@@ -24,18 +24,19 @@ uses CastleVectors, CastleRectangles;
 
 type
   { Projection type, used by @link(TProjection.ProjectionType). }
-  TProjectionType = (ptOrthographic, ptPerspective, ptFrustum);
+  TProjectionTypeCore = (ptOrthographic, ptPerspective, ptFrustum);
+  TProjectionType = ptOrthographic .. ptPerspective;
 
   { Projection determines how does the 3D world map onto 2D.
     To change the currently displayed projection,
-    you usually want to override the @link(TCastleAbstractViewport.CalculateProjection). }
+    you usually want to override the @link(TCastleViewport.CalculateProjection). }
   TProjection = record
-    ProjectionType: TProjectionType;
+    ProjectionType: TProjectionTypeCore;
 
     { If ProjectionType is ptPerspective, this property specifies
       angles of view (horizontal and vertical), in degrees.
 
-      Note that when overriding the @link(TCastleAbstractViewport.CalculateProjection),
+      Note that when overriding the @link(TCastleViewport.CalculateProjection),
       you are expected to provide both angles calculated, even though some routines
       for now will only use the vertical angle (and automatically adjust the other
       to the aspect ratio).
@@ -123,6 +124,8 @@ function PerspectiveProjectionMatrixDeg(const fovyDeg, aspect, ZNear, ZFar: Sing
 function PerspectiveProjectionMatrixRad(const fovyRad, aspect, ZNear, ZFar: Single): TMatrix4;
 { @groupEnd }
 
+function ProjectionTypeToStr(const ProjectionType: TProjectionTypeCore): String;
+
 implementation
 
 uses Math,
@@ -149,7 +152,9 @@ begin
         Dimensions,
         ProjectionNear,
         ProjectionFar);
-    else raise EInternalError.Create('TCastleAbstractViewport.ApplyProjection:ProjectionType?');
+    {$ifndef COMPILER_CASE_ANALYSIS}
+    else raise EInternalError.Create(2018081901);
+    {$endif}
   end;
 end;
 
@@ -309,6 +314,13 @@ begin
   end;
 
   Result.Data[2, 3] := -1;
+end;
+
+function ProjectionTypeToStr(const ProjectionType: TProjectionTypeCore): String;
+const
+  Names: array[TProjectionTypeCore] of String = ('Orthographic', 'Perspective', 'Frustum');
+begin
+  Result := Names[ProjectionType];
 end;
 
 end.

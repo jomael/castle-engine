@@ -33,20 +33,23 @@ type
     procedure SetNodeValue8(const S: string);
   public
     { Node name (attribute, element or such name).
-      Expressed as an 8-bit string (in UTF-8 encoding), contrary to the NodeName
-      from FPC DOM unit that is a WideString (DOMString). }
+
+      In FPC this is expressed as an 8-bit string (in UTF-8 encoding),
+      contrary to the NodeName from FPC DOM unit that is a WideString (DOMString). }
     function NodeName8: string;
 
     { Node value (like an attribute value).
-      Expressed as an 8-bit string (in UTF-8 encoding), contrary to the NodeValue
-      from FPC DOM unit that is a WideString (DOMString). }
+
+      In FPC this is expressed as an 8-bit string (in UTF-8 encoding),
+      contrary to the NodeValue from FPC DOM unit that is a WideString (DOMString). }
     property NodeValue8: string read GetNodeValue8 write SetNodeValue8;
   end;
 
   TDOMCharacterDataHelper = class helper for TDOMCharacterData
     { String data.
-      Expressed as an 8-bit string (in UTF-8 encoding), contrary to the Data
-      from FPC DOM unit that is a WideString (DOMString). }
+
+      In FPC this is expressed as an 8-bit string (in UTF-8 encoding),
+      contrary to the Data from FPC DOM unit that is a WideString (DOMString). }
     function Data8: string;
   end;
 
@@ -56,6 +59,7 @@ type
     { ------------------------------------------------------------------------
       Get an optional attribute to a "var" parameter, returns if found. }
 
+    {$ifdef FPC}
     { Read from Element attribute value and returns @true,
       or (if there is no such attribute) returns @false
       and does not modify Value. Value is a "var", not "out" param,
@@ -65,6 +69,7 @@ type
       Note that the returned Value may be empty, even when this returns @true,
       if the value is explicitly set to empty in XML (by @code(xxx="") in XML). }
     function AttributeString(const AttrName: string; var Value: string): boolean; overload;
+    {$endif}
 
     { Read from Element attribute value as URL and returns @true,
       or (if there is no such attribute) returns @false
@@ -88,6 +93,11 @@ type
       or (if there is no such attribute) returns @false
       and does not modify Value. }
     function AttributeInt64(const AttrName: string; var Value: Int64): boolean; overload;
+
+    { Read from Element attribute value as QWord and returns @true,
+      or (if there is no such attribute) returns @false
+      and does not modify Value. }
+    function AttributeQWord(const AttrName: string; var Value: QWord): boolean; overload;
 
     { Read from Element attribute value as Single and returns @true,
       or (if there is no such attribute) returns @false
@@ -141,6 +151,13 @@ type
       @raises EConvertError If the attribute exists in XML, but has invalid format. }
     function AttributeVector3(const AttrName: string; var Value: TVector3): boolean; overload;
 
+    { Read from Element attribute as a 4D vector(4 floats, e.g. rotation), and returns @true,
+      or (if there is no such attribute) returns @false
+      and does not modify Value.
+
+      @raises EConvertError If the attribute exists in XML, but has invalid format. }
+    function AttributeVector4(const AttrName: string; var Value: TVector4): boolean; overload;
+
     { ------------------------------------------------------------------------
       Get a required attribute, returns value (exception if not found). }
 
@@ -178,6 +195,11 @@ type
       raises EDOMAttributeMissing if missing.
       @raises EDOMAttributeMissing }
     function AttributeInt64(const AttrName: string): Int64; overload;
+
+    { Retrieves from Element given attribute as an QWord,
+      raises EDOMAttributeMissing if missing.
+      @raises EDOMAttributeMissing }
+    function AttributeQWord(const AttrName: string): QWord; overload;
 
     { Retrieves from Element given attribute as a Single,
       raises EDOMAttributeMissing if missing.
@@ -229,6 +251,11 @@ type
       @raises EDOMAttributeMissing }
     function AttributeVector3(const AttrName: string): TVector3; overload;
 
+    { Retrieves from Element given attribute as a 4D vector (4 floats, e.g. rotation),
+      raises EDOMAttributeMissing if missing or has invalid format.
+      @raises EDOMAttributeMissing }
+    function AttributeVector4(const AttrName: string): TVector4; overload;
+
     { ------------------------------------------------------------------------
       Get an optional attribute, returns attribute or a default value. }
 
@@ -244,6 +271,9 @@ type
 
     { Retrieves from Element given attribute as an Int64, or a default value. }
     function AttributeInt64Def(const AttrName: string; const DefaultValue: Int64): Int64;
+
+    { Retrieves from Element given attribute as an QWord, or a default value. }
+    function AttributeQWordDef(const AttrName: string; const DefaultValue: QWord): QWord;
 
     { Retrieves from Element given attribute as a Single, or a default value. }
     function AttributeSingleDef(const AttrName: string; const DefaultValue: Single): Single;
@@ -275,6 +305,10 @@ type
       @raises EConvertError If the value exists in XML, but has invalid format. }
     function AttributeVector3Def(const AttrName: string; const DefaultValue: TVector3): TVector3;
 
+    { Retrieves from Element given attribute as a 4D vector (4 floats), or a default value.
+      @raises EConvertError If the value exists in XML, but has invalid format. }
+    function AttributeVector4Def(const AttrName: string; const DefaultValue: TVector4): TVector4;
+
     { Attribute setting ------------------------------------------------------ }
 
     { Set the attribute as string. Equivalent to standard SetAttribute in DOM unit,
@@ -293,11 +327,15 @@ type
       such that it's readable back by @link(AttributeInt64) and @link(AttributeInt64Def). }
     procedure AttributeSet(const AttrName: string; const Value: Int64); overload;
 
+    { Set the attribute as QWord,
+      such that it's readable back by @link(AttributeQWord) and @link(AttributeQWordDef). }
+    procedure AttributeSet(const AttrName: string; const Value: QWord); overload;
+
     { Set the attribute as Cardinal,
       such that it's readable back by @link(AttributeCardinal) and @link(AttributeCardinalDef). }
     procedure AttributeSet(const AttrName: string; const Value: Cardinal); overload;
 
-    { Set the attribute as Int64,
+    { Set the attribute as Single,
       such that it's readable back by @link(AttributeSingle) and @link(AttributeSingleDef). }
     procedure AttributeSet(const AttrName: string; const Value: Single); overload;
 
@@ -309,11 +347,15 @@ type
       such that it's readable back by @link(AttributeVector3) and @link(AttributeVector3Def). }
     procedure AttributeSet(const AttrName: string; const Value: TVector3); overload;
 
+    { Set the attribute as TVector4,
+      such that it's readable back by @link(AttributeVector4) and @link(AttributeVector4Def). }
+    procedure AttributeSet(const AttrName: string; const Value: TVector4); overload;
+
     { Other methods ---------------------------------------------------------- }
 
     { Get child element with given ChildName.
 
-      For example use @code(LevelElement.ChildElement('items'))
+      For example use @code(LevelElement.Child('items'))
       to get the <items> element within <level> element, as in example below.
 
       @preformatted(
@@ -334,7 +376,13 @@ type
 
       @raises(EDOMChildElementError
         If child not found (or found more than once), and Required = @true.)  }
+    function Child(const ChildName: string; const Required: boolean = true): TDOMElement;
+
+    { Same as @link(Child). }
     function ChildElement(const ChildName: string; const Required: boolean = true): TDOMElement;
+
+    { Create a new child element under this element, and return it. }
+    function CreateChild(const ChildName: string): TDOMElement;
 
     { Iterator over all children elements. Use like this:
 
@@ -573,22 +621,25 @@ function DOMGetTextChild(const Element: TDOMElement;
       and their Release method doesn't exist (since rev 13113).)
   ) }
 procedure FreeChildNodes(const ChildNodes: TDOMNodeList);
-  deprecated 'this is useless since a long time (FPC >= 2.4.x), you can remove this a the engine does not support older FPC versions anyway';
+  deprecated 'this is useless since a long time (FPC >= 2.4.x), you can remove this as the engine does not support older FPC versions anyway';
 
 { Replacements for standard ReadXMLFile and WriteXMLFile that operate on URLs.
   Optionally they can encrypt / decrypt content using BlowFish.
   @groupBegin }
 procedure URLReadXML(out Doc: TXMLDocument; const URL: String); overload;
-procedure URLReadXML(out Doc: TXMLDocument; const URL: String; const BlowFishKeyPhrase: string); overload;
 function URLReadXML(const URL: String): TXMLDocument; overload;
-function URLReadXML(const URL: String; const BlowFishKeyPhrase: string): TXMLDocument; overload;
 procedure URLWriteXML(Doc: TXMLDocument; const URL: String); overload;
+
+{$ifdef FPC}
+procedure URLReadXML(out Doc: TXMLDocument; const URL: String; const BlowFishKeyPhrase: string); overload;
+function URLReadXML(const URL: String; const BlowFishKeyPhrase: string): TXMLDocument; overload;
 procedure URLWriteXML(Doc: TXMLDocument; const URL: String; const BlowFishKeyPhrase: string); overload;
+{$endif}
 { @groupEnd }
 
 implementation
 
-uses Classes, XMLRead, XMLWrite, BlowFish,
+uses Classes, XMLRead, XMLWrite, {$ifdef FPC} BlowFish, {$endif}
   CastleURIUtils, CastleClassUtils;
 
 { TDOMNodeHelper ------------------------------------------------------------- }
@@ -619,6 +670,7 @@ end;
   TDOMElementHelper:
   Get an optional attribute to a "var" parameter, returns if found. }
 
+{$ifdef FPC}
 function TDOMElementHelper.AttributeString(const AttrName: string; var Value: string): boolean;
 var
   AttrNode: TDOMNode;
@@ -632,6 +684,7 @@ begin
     Value := UTF8Encode((AttrNode as TDOMAttr).Value);
   end;
 end;
+{$endif}
 
 function TDOMElementHelper.AttributeURL(
   const AttrName: string; const BaseUrl: string; var URL: string): boolean;
@@ -669,6 +722,16 @@ begin
   Result := AttributeString(AttrName, ValueStr);
   if Result then
     Value := StrToInt64(ValueStr);
+end;
+
+function TDOMElementHelper.AttributeQWord(
+  const AttrName: string; var Value: QWord): boolean;
+var
+  ValueStr: string;
+begin
+  Result := AttributeString(AttrName, ValueStr);
+  if Result then
+    Value := StrToQWord(ValueStr);
 end;
 
 function TDOMElementHelper.AttributeSingle(
@@ -747,6 +810,16 @@ begin
     Value := Vector3FromStr(ValueStr);
 end;
 
+function TDOMElementHelper.AttributeVector4(
+  const AttrName: string; var Value: TVector4): boolean;
+var
+  ValueStr: string;
+begin
+  Result := AttributeString(AttrName, ValueStr);
+  if Result then
+    Value := Vector4FromStr(ValueStr);
+end;
+
 { ------------------------------------------------------------------------
   TDOMElementHelper:
   Get a required attribute, returns value (exception if not found). }
@@ -778,7 +851,13 @@ end;
 function TDOMElementHelper.AttributeInt64(const AttrName: string): Int64;
 begin
   if not AttributeInt64(AttrName, Result) then
-    raise EDOMAttributeMissing.CreateFmt('Missing required (integer 64-bit) attribute "%s" on element "%s"', [AttrName, TagName]);
+    raise EDOMAttributeMissing.CreateFmt('Missing required (64-bit integer) attribute "%s" on element "%s"', [AttrName, TagName]);
+end;
+
+function TDOMElementHelper.AttributeQWord(const AttrName: string): QWord;
+begin
+  if not AttributeQWord(AttrName, Result) then
+    raise EDOMAttributeMissing.CreateFmt('Missing required (unsigned 64-bit integer) attribute "%s" on element "%s"', [AttrName, TagName]);
 end;
 
 function TDOMElementHelper.AttributeSingle(const AttrName: string): Single;
@@ -823,6 +902,12 @@ begin
     raise EDOMAttributeMissing.CreateFmt('Missing (or has an invalid value) required (vector3) attribute "%s" on element "%s"', [AttrName, TagName]);
 end;
 
+function TDOMElementHelper.AttributeVector4(const AttrName: string): TVector4;
+begin
+  if not AttributeVector4(AttrName, Result) then
+    raise EDOMAttributeMissing.CreateFmt('Missing (or has an invalid value) required (vector4) attribute "%s" on element "%s"', [AttrName, TagName]);
+end;
+
 { ------------------------------------------------------------------------
   TDOMElementHelper:
   Get an optional attribute, returns attribute or a default value. }
@@ -842,6 +927,12 @@ end;
 function TDOMElementHelper.AttributeInt64Def(const AttrName: string; const DefaultValue: Int64): Int64;
 begin
   if not AttributeInt64(AttrName, Result) then
+    Result := DefaultValue;
+end;
+
+function TDOMElementHelper.AttributeQWordDef(const AttrName: string; const DefaultValue: QWord): QWord;
+begin
+  if not AttributeQWord(AttrName, Result) then
     Result := DefaultValue;
 end;
 
@@ -893,6 +984,12 @@ begin
     Result := DefaultValue;
 end;
 
+function TDOMElementHelper.AttributeVector4Def(const AttrName: string; const DefaultValue: TVector4): TVector4;
+begin
+  if not AttributeVector4(AttrName, Result) then
+    Result := DefaultValue;
+end;
+
 { TDOMElementHelper: Attribute setting ------------------------------------------------------ }
 
 procedure TDOMElementHelper.AttributeSet(const AttrName: string; const Value: string);
@@ -911,6 +1008,11 @@ begin
 end;
 
 procedure TDOMElementHelper.AttributeSet(const AttrName: string; const Value: Int64);
+begin
+  SetAttribute(UTF8Decode(AttrName), UTF8Decode(IntToStr(Value)));
+end;
+
+procedure TDOMElementHelper.AttributeSet(const AttrName: string; const Value: QWord);
 begin
   SetAttribute(UTF8Decode(AttrName), UTF8Decode(IntToStr(Value)));
 end;
@@ -935,10 +1037,21 @@ begin
   SetAttribute(UTF8Decode(AttrName), UTF8Decode(Value.ToRawString));
 end;
 
+procedure TDOMElementHelper.AttributeSet(const AttrName: string; const Value: TVector4);
+begin
+  SetAttribute(UTF8Decode(AttrName), UTF8Decode(Value.ToRawString));
+end;
+
 { ------------------------------------------------------------------------
   TDOMElementHelper: Other methods. }
 
 function TDOMElementHelper.ChildElement(const ChildName: string;
+  const Required: boolean): TDOMElement;
+begin
+  Result := Child(ChildName, Required);
+end;
+
+function TDOMElementHelper.Child(const ChildName: string;
   const Required: boolean): TDOMElement;
 var
   Children: TDOMNodeList;
@@ -997,12 +1110,18 @@ begin
   begin
     Node := Children.Item[I];
     case Node.NodeType of
-      TEXT_NODE: Result := Result + UTF8Encode((Node as TDOMText).Data);
+      TEXT_NODE: Result := Result + (Node as TDOMText).NodeValue8;
       ELEMENT_NODE: raise Exception.CreateFmt(
         'Child elements not allowed within element <%s>, but found %s',
           [TagName, (Node as TDOMElement).TagName]);
     end;
   end;
+end;
+
+function TDOMElementHelper.CreateChild(const ChildName: string): TDOMElement;
+begin
+  Result := OwnerDocument.CreateElement(UTF8Decode(ChildName));
+  AppendChild(Result);
 end;
 
 function TDOMElementHelper.ChildrenIterator: TXMLElementIterator;
@@ -1202,6 +1321,8 @@ begin
   {$ifdef VER2_2} ChildNodes.Release; {$endif}
 end;
 
+{$ifdef FPC}
+
 procedure URLReadXML(out Doc: TXMLDocument; const URL: String; const BlowFishKeyPhrase: string);
 var
   Stream: TStream;
@@ -1224,11 +1345,22 @@ begin
       SetLength(DecryptedContent, L);
       DecryptedCorrectStream := TStringStream.Create(DecryptedContent);
       try
-        ReadXMLFile(Doc, DecryptedCorrectStream);
+        try
+          ReadXMLFile(Doc, DecryptedCorrectStream);
+        except
+          // on EXMLReadError, improve exception message and reraise
+          on E: EXMLReadError do
+          begin
+            E.Message := E.Message + ' (in file "' + URIDisplay(URL) + '", encrypted)';
+            raise;
+          end;
+        end;
       finally FreeAndNil(DecryptedCorrectStream) end;
     finally FreeAndNil(DecryptStream) end;
   finally FreeAndNil(Stream) end;
 end;
+
+{$endif}
 
 procedure URLReadXML(out Doc: TXMLDocument; const URL: String);
 var
@@ -1246,7 +1378,16 @@ begin
 
   Stream := Download(URL, StreamOptions);
   try
-    ReadXMLFile(Doc, Stream);
+    try
+      ReadXMLFile(Doc, Stream);
+    except
+      // on EXMLReadError, improve exception message and reraise
+      on E: EXMLReadError do
+      begin
+        E.Message := E.Message + ' (in file "' + URIDisplay(URL) + '")';
+        raise;
+      end;
+    end;
   finally FreeAndNil(Stream) end;
 end;
 
@@ -1257,6 +1398,8 @@ begin
     URLReadXML(Result, URL);     //this one will automatically take care of gzipping
   except FreeAndNil(Result); raise; end;
 end;
+
+{$ifdef FPC}
 
 function URLReadXML(const URL: String; const BlowFishKeyPhrase: string): TXMLDocument;
 begin
@@ -1279,6 +1422,8 @@ begin
     finally FreeAndNil(EncryptStream) end;
   finally FreeAndNil(Stream) end;
 end;
+
+{$endif}
 
 procedure URLWriteXML(Doc: TXMLDocument; const URL: String);
 var
